@@ -9,7 +9,9 @@ import json
 import logging
 from datetime import datetime
 from typing import Optional
+from cryptography.fernet import Fernet
 
+import os
 from sqlalchemy import (
     Column, DateTime, Integer, String, Text, create_engine,
 )
@@ -20,6 +22,26 @@ logger = logging.getLogger(__name__)
 Base = declarative_base()
 SessionLocal = None
 engine = None
+
+# Encryption key for credentials
+ENCRYPTION_KEY = os.environ.get("ENCRYPTION_KEY")
+if ENCRYPTION_KEY:
+    cipher = Fernet(ENCRYPTION_KEY.encode())
+else:
+    logger.warning("ENCRYPTION_KEY not set; credential encryption disabled.")
+    cipher = None
+
+
+def _encrypt(value: str) -> str:
+    if cipher and value:
+        return cipher.encrypt(value.encode()).decode()
+    return value
+
+
+def _decrypt(value: str) -> str:
+    if cipher and value:
+        return cipher.decrypt(value.encode()).decode()
+    return value
 
 
 def _to_text(value):
@@ -58,6 +80,30 @@ class VmInventoryRecord(Base):
     created_date = Column(String(64))
     power_state = Column(String(64))
     tools_status = Column(String(64))
+
+
+class CredentialRecord(Base):
+    __tablename__ = "credentials"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    host = Column(String(255), nullable=False, unique=True)
+    username = Column(String(255), nullable=False)
+    password_encrypted = Column(Text, nullable=False)
+    port = Column(Integer, default=443)
+    verify_ssl = Column(String(5), default="false")
+    last_discovery = Column(DateTime)
+    enabled = Column(String(5), default="true")
+
+
+class SchedulerRecord(Base):
+    __tablename__ = "scheduler"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    job_id = Column(String(255), nullable=False, unique=True)
+    host = Column(String(255), nullable=False)
+    interval_minutes = Column(Integer, default=60)
+    next_run = Column(DateTime)
+    enabled = Column(String(5), default="true")
 
 
 def init_app(database_url: Optional[str]):
