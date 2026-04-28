@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}VMware Inventory{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner">
+      <div class="brand">
+        <span class="brand-icon">◈</span>
+        <a href="{{ url_for('index') }}" class="brand-name">VMWARE INVENTORY</a>
+      </div>
+      <nav class="header-nav">
+        <a href="{{ url_for('index') }}" class="nav-link">CONNECT</a>
+        <a href="{{ url_for('view_cached') }}" class="nav-link">CACHED VIEW</a>
+        <a href="{{ url_for('view_saved') }}" class="nav-link">SAVED</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="ticker-bar">
+    <div class="ticker-content">
+      <span>VM DISCOVERY TOOL</span>
+      <span class="sep">//</span>
+      <span>SUPPORTS VCENTER &amp; STANDALONE ESXI</span>
+      <span class="sep">//</span>
+      <span>NO CREDENTIALS ARE STORED</span>
+      <span class="sep">//</span>
+      <span>UBUNTU 24.04 · PYTHON 3.12 · PYVMOMI</span>
+      <span class="sep">//</span>
+      <span>VM DISCOVERY TOOL</span>
+      <span class="sep">//</span>
+      <span>SUPPORTS VCENTER &amp; STANDALONE ESXI</span>
+      <span class="sep">//</span>
+      <span>NO CREDENTIALS ARE STORED</span>
+      <span class="sep">//</span>
+      <span>UBUNTU 24.04 · PYTHON 3.12 · PYVMOMI</span>
+    </div>
+  </div>
+
+  <main class="main-content">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div class="flash-container">
+          {% for category, message in messages %}
+            <div class="flash flash--{{ category }}">
+              <span class="flash-icon">
+                {% if category == 'success' %}✓
+                {% elif category == 'error' %}✗
+                {% elif category == 'warning' %}⚠
+                {% else %}ℹ{% endif %}
+              </span>
+              {{ message }}
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="site-footer">
+    <span>VMware Inventory Tool</span>
+    <span class="sep">·</span>
+    <span>Credentials are never stored or logged</span>
+    <span class="sep">·</span>
+    <span>pyVmomi {{ "{}" }}</span>
+  </footer>
+
+  {% block scripts %}{% endblock %}
+</body>
+</html>

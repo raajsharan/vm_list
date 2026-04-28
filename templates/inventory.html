@@ -1,0 +1,208 @@
+{% extends "base.html" %}
+{% block title %}Inventory — {{ host }} — VMware Inventory{% endblock %}
+
+{% block content %}
+<div class="page-inventory">
+
+  <div class="inventory-header">
+    <div>
+      <div class="page-label">DISCOVERY RESULTS</div>
+      <h1 class="page-title">
+        VM Inventory
+        <span class="host-badge">{{ host }}</span>
+      </h1>
+      {% if cached_at %}
+      <p class="cached-notice">⏱ Showing cached results from {{ cached_at }}</p>
+      {% elif saved %}
+      <p class="cached-notice">⏱ Showing saved PostgreSQL records</p>
+      {% endif %}
+    </div>
+    <div class="inventory-actions">
+      <a href="{{ url_for('export_csv') }}" class="btn btn--secondary">↓ Export CSV</a>
+      <a href="{{ url_for('export_json') }}" class="btn btn--ghost">↓ Export JSON</a>
+      <a href="{{ url_for('index') }}" class="btn btn--outline">← New Discovery</a>
+    </div>
+  </div>
+
+  <div class="stats-bar">
+    <div class="stat">
+      <span class="stat-val">{{ count }}</span>
+      <span class="stat-key">Total VMs</span>
+    </div>
+    <div class="stat">
+      <span class="stat-val" id="filteredCount">{{ count }}</span>
+      <span class="stat-key">Filtered</span>
+    </div>
+    <div class="stat">
+      <span class="stat-val" id="poweredOn">—</span>
+      <span class="stat-key">Powered On</span>
+    </div>
+  </div>
+
+  <!-- Search / filter bar -->
+  <div class="filter-bar">
+    <div class="search-wrapper">
+      <span class="search-icon">⌕</span>
+      <input
+        type="text"
+        id="searchInput"
+        class="search-input"
+        placeholder="Filter by VM name, IP, OS, hostname…"
+        autocomplete="off"
+        spellcheck="false"
+      />
+      <button class="search-clear" id="searchClear" style="display:none;">✕</button>
+    </div>
+    <div class="filter-controls">
+      <select id="powerFilter" class="filter-select">
+        <option value="">All power states</option>
+        <option value="poweredOn">Powered On</option>
+        <option value="poweredOff">Powered Off</option>
+        <option value="suspended">Suspended</option>
+      </select>
+    </div>
+  </div>
+
+  {% if vms %}
+  <div class="table-wrapper">
+    <table class="vm-table" id="vmTable">
+      <thead>
+        <tr>
+          <th class="sortable" data-col="0">#</th>
+          <th class="sortable" data-col="1">VM Name <span class="sort-arrow">↕</span></th>
+          <th class="sortable" data-col="2">Hostname <span class="sort-arrow">↕</span></th>
+          <th class="sortable" data-col="3">Host IP <span class="sort-arrow">↕</span></th>
+          <th class="sortable" data-col="4">IP Address(es) <span class="sort-arrow">↕</span></th>
+          <th class="sortable" data-col="5">ESXi Host <span class="sort-arrow">↕</span></th>
+          <th class="sortable" data-col="6">OS Type <span class="sort-arrow">↕</span></th>
+          <th class="sortable" data-col="7">OS Version <span class="sort-arrow">↕</span></th>
+          <th class="sortable" data-col="8">MAC Address(es) <span class="sort-arrow">↕</span></th>
+          <th class="sortable" data-col="9">Created Date <span class="sort-arrow">↕</span></th>
+          <th class="sortable" data-col="10">Power State <span class="sort-arrow">↕</span></th>
+        </tr>
+      </thead>
+      <tbody id="vmBody">
+        {% for vm in vms %}
+        <tr class="vm-row" data-power="{{ vm.power_state }}">
+          <td class="row-num">{{ loop.index }}</td>
+          <td class="vm-name">
+            <span class="name-text">{{ vm.name }}</span>
+          </td>
+          <td class="{% if vm.hostname == 'Not Available' %}na{% endif %}">{{ vm.hostname }}</td>
+          <td class="{% if vm.esxi_host_ip == 'Not Available' %}na{% endif %}">{{ vm.esxi_host_ip }}</td>
+          <td class="ip-cell">
+            {% if vm.ip_addresses != 'Not Available' %}
+              {% for ip in vm.ip_addresses.split(' | ') %}
+                <span class="ip-tag">{{ ip }}</span>
+              {% endfor %}
+            {% else %}
+              <span class="na">Not Available</span>
+            {% endif %}
+          </td>
+          <td>{{ vm.esxi_host_name }}</td>
+          <td class="{% if vm.os_type == 'Not Available' %}na{% endif %}">{{ vm.os_type }}</td>
+          <td class="os-version {% if vm.os_version == 'Not Available' %}na{% endif %}">{{ vm.os_version }}</td>
+          <td class="mac-cell">
+            {% if vm.mac_addresses != 'Not Available' %}
+              {% for mac in vm.mac_addresses.split(' | ') %}
+                <span class="mac-tag">{{ mac }}</span>
+              {% endfor %}
+            {% else %}
+              <span class="na">Not Available</span>
+            {% endif %}
+          </td>
+          <td class="{% if vm.created_date == 'Not Available' %}na{% endif %}">{{ vm.created_date }}</td>
+          <td>
+            <span class="power-badge power-badge--{{ vm.power_state }}">{{ vm.power_state }}</span>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <div class="no-results" id="noResults" style="display:none;">
+      No VMs match your filter criteria.
+    </div>
+  </div>
+  {% else %}
+    <div class="empty-state">
+      <div class="empty-icon">◈</div>
+      <p>No VMs were found, or all are templates.</p>
+      <a href="{{ url_for('index') }}" class="btn btn--primary">Try Again</a>
+    </div>
+  {% endif %}
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const tbody        = document.getElementById('vmBody');
+  const searchInput  = document.getElementById('searchInput');
+  const searchClear  = document.getElementById('searchClear');
+  const powerFilter  = document.getElementById('powerFilter');
+  const filteredSpan = document.getElementById('filteredCount');
+  const poweredSpan  = document.getElementById('poweredOn');
+  const noResults    = document.getElementById('noResults');
+  const table        = document.getElementById('vmTable');
+
+  // Count powered-on on load
+  const allRows = Array.from(tbody.querySelectorAll('tr.vm-row'));
+  poweredSpan.textContent = allRows.filter(r => r.dataset.power === 'poweredOn').length;
+
+  // ── Filter ──
+  function applyFilter() {
+    const q     = searchInput.value.toLowerCase().trim();
+    const power = powerFilter.value;
+    let visible = 0;
+
+    allRows.forEach((row, idx) => {
+      const text  = row.textContent.toLowerCase();
+      const match = (!q || text.includes(q)) &&
+                    (!power || row.dataset.power === power);
+      row.style.display = match ? '' : 'none';
+      if (match) {
+        visible++;
+        row.querySelector('.row-num').textContent = visible;
+      }
+    });
+
+    filteredSpan.textContent = visible;
+    noResults.style.display  = visible === 0 ? 'block' : 'none';
+    searchClear.style.display = q ? 'inline-flex' : 'none';
+  }
+
+  searchInput.addEventListener('input', applyFilter);
+  powerFilter.addEventListener('change', applyFilter);
+  searchClear.addEventListener('click', () => {
+    searchInput.value = '';
+    applyFilter();
+    searchInput.focus();
+  });
+
+  // ── Sorting ──
+  let sortCol = -1, sortAsc = true;
+
+  document.querySelectorAll('th.sortable').forEach(th => {
+    th.addEventListener('click', () => {
+      const col = parseInt(th.dataset.col);
+      if (sortCol === col) { sortAsc = !sortAsc; }
+      else { sortCol = col; sortAsc = true; }
+
+      document.querySelectorAll('th.sortable').forEach(t => t.classList.remove('sorted-asc','sorted-desc'));
+      th.classList.add(sortAsc ? 'sorted-asc' : 'sorted-desc');
+
+      const rows = Array.from(tbody.querySelectorAll('tr.vm-row'));
+      rows.sort((a, b) => {
+        const av = a.cells[col]?.textContent.trim() || '';
+        const bv = b.cells[col]?.textContent.trim() || '';
+        return sortAsc ? av.localeCompare(bv, undefined, {numeric: true})
+                       : bv.localeCompare(av, undefined, {numeric: true});
+      });
+      rows.forEach(r => tbody.appendChild(r));
+      applyFilter();
+    });
+  });
+})();
+</script>
+{% endblock %}

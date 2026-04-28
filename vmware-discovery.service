@@ -1,0 +1,13 @@
+# vmware-discovery.service — one-shot discovery job
+[Unit]
+Description=VMware VM Inventory Scheduled Discovery
+After=network.target
+
+[Service]
+Type=oneshot
+User=www-data
+WorkingDirectory=/opt/vmware-inventory
+EnvironmentFile=/etc/vmware-inventory/credentials.env
+ExecStart=/opt/vmware-inventory/venv/bin/python3 /opt/vmware-inventory/discover_cron.py
+StandardOutput=journal
+StandardError=journal

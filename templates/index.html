@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+{% block title %}Connect — VMware Inventory{% endblock %}
+
+{% block content %}
+<div class="page-connect">
+
+  <div class="connect-hero">
+    <div class="hero-label">VSPHERE / ESXI CONNECTOR</div>
+    <h1 class="hero-title">VM Inventory<br><span class="accent">Discovery</span></h1>
+    <p class="hero-sub">Connect to vCenter or a standalone ESXi host to enumerate all virtual machines and their properties.</p>
+  </div>
+
+  <div class="connect-layout">
+    <!-- ── Connection Form ── -->
+    <div class="card card--primary">
+      <div class="card-header">
+        <span class="card-label">01</span>
+        <h2 class="card-title">Connection Details</h2>
+      </div>
+      <form method="POST" action="{{ url_for('discover') }}" autocomplete="off" class="connect-form" id="connectForm">
+        <div class="form-row">
+          <label class="form-label" for="host">
+            Host / IP Address
+            <span class="form-hint">vCenter or ESXi hostname / IP</span>
+          </label>
+          <input
+            type="text" id="host" name="host"
+            class="form-input" placeholder="192.168.1.10 or vcenter.lab.local"
+            required autocomplete="off" spellcheck="false"
+          />
+        </div>
+
+        <div class="form-row form-row--split">
+          <div>
+            <label class="form-label" for="username">
+              Username
+            </label>
+            <input
+              type="text" id="username" name="username"
+              class="form-input" placeholder="administrator@vsphere.local"
+              required autocomplete="off" spellcheck="false"
+            />
+          </div>
+          <div>
+            <label class="form-label" for="port">
+              Port
+            </label>
+            <input
+              type="number" id="port" name="port"
+              class="form-input" value="443" min="1" max="65535"
+            />
+          </div>
+        </div>
+
+        <div class="form-row">
+          <label class="form-label" for="password">
+            Password
+            <span class="form-hint">Never stored or logged</span>
+          </label>
+          <div class="password-wrapper">
+            <input
+              type="password" id="password" name="password"
+              class="form-input" placeholder="••••••••••••"
+              required autocomplete="current-password"
+            />
+            <button type="button" class="pw-toggle" id="pwToggle" aria-label="Toggle password visibility">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                <circle cx="12" cy="12" r="3"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="form-row form-row--check">
+          <label class="check-label">
+            <input type="checkbox" name="verify_ssl" id="verify_ssl" class="check-input" />
+            <span class="check-box"></span>
+            <span>Enable SSL certificate verification</span>
+          </label>
+          <span class="form-hint">Disable for self-signed certificates (common in labs)</span>
+        </div>
+
+        <div class="form-actions">
+          <button type="submit" class="btn btn--primary" id="submitBtn">
+            <span class="btn-icon">⟳</span>
+            <span class="btn-text">Discover VMs</span>
+          </button>
+        </div>
+      </form>
+    </div>
+
+    <!-- ── Sidebar ── -->
+    <div class="connect-sidebar">
+      {% if cached %}
+      <div class="card card--cache">
+        <div class="card-header">
+          <span class="card-label">02</span>
+          <h2 class="card-title">Cached Results</h2>
+        </div>
+        <div class="cache-meta">
+          <div class="meta-row">
+            <span class="meta-key">Host</span>
+            <span class="meta-val">{{ cached.host }}</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-key">VMs Found</span>
+            <span class="meta-val accent">{{ cached.count }}</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-key">Captured</span>
+            <span class="meta-val">{{ cached.timestamp }}</span>
+          </div>
+        </div>
+        <div class="cache-actions">
+          <a href="{{ url_for('view_cached') }}" class="btn btn--secondary btn--sm">View Cached</a>
+          <a href="{{ url_for('export_csv') }}" class="btn btn--ghost btn--sm">↓ CSV</a>
+          <a href="{{ url_for('export_json') }}" class="btn btn--ghost btn--sm">↓ JSON</a>
+        </div>
+        <form method="POST" action="{{ url_for('clear_cache') }}" style="margin-top: 0.75rem;">
+          <button type="submit" class="btn btn--danger btn--sm">Clear Cache</button>
+        </form>
+      </div>
+      {% endif %}
+
+      <div class="card card--info">
+        <div class="card-header">
+          <span class="card-label">ℹ</span>
+          <h2 class="card-title">What is collected</h2>
+        </div>
+        <ul class="info-list">
+          <li><span class="dot dot--green"></span>VM Name</li>
+          <li><span class="dot dot--green"></span>Guest Hostname</li>
+          <li><span class="dot dot--green"></span>IP Address(es)</li>
+          <li><span class="dot dot--green"></span>ESXi Host IP</li>
+          <li><span class="dot dot--green"></span>OS Type &amp; Version</li>
+          <li><span class="dot dot--green"></span>MAC Address(es)</li>
+          <li><span class="dot dot--yellow"></span>Created Date <em>(vCenter only)</em></li>
+          <li><span class="dot dot--yellow"></span>Hostname / IPs <em>(requires VMware Tools)</em></li>
+        </ul>
+      </div>
+
+      <div class="card card--info">
+        <div class="card-header">
+          <span class="card-label">⚙</span>
+          <h2 class="card-title">Scheduling</h2>
+        </div>
+        <p class="card-text">Run periodic discovery with the bundled cron or systemd timer. See <code>README.md</code> for setup.</p>
+        <pre class="code-snippet">python3 discover_cron.py \
+  --host 192.168.1.10 \
+  --username admin@vsphere.local</pre>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // Password visibility toggle
+  const pwField = document.getElementById('password');
+  const toggle  = document.getElementById('pwToggle');
+  toggle.addEventListener('click', () => {
+    pwField.type = pwField.type === 'password' ? 'text' : 'password';
+  });
+
+  // Loading state on submit
+  const form   = document.getElementById('connectForm');
+  const btn    = document.getElementById('submitBtn');
+  const btnTxt = btn.querySelector('.btn-text');
+  const btnIco = btn.querySelector('.btn-icon');
+  form.addEventListener('submit', () => {
+    btn.disabled = true;
+    btn.classList.add('btn--loading');
+    btnTxt.textContent = 'Connecting…';
+    btnIco.textContent = '↻';
+  });
+</script>
+{% endblock %}

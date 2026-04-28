@@ -1,0 +1,10 @@
+[Unit]
+Description=VMware VM Inventory — Hourly Discovery Timer
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=1h
+Unit=vmware-discovery.service
+
+[Install]
+WantedBy=timers.target
