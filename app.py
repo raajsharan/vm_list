@@ -110,10 +110,22 @@ def create_app() -> Flask:
 
     @app.route("/cached", methods=["GET"])
     def view_cached():
-        payload = cache_store.load()
-        if not payload:
-            flash("No cached results found. Run a discovery first.", "warning")
-            return redirect(url_for("index"))
+        available_hosts = cache_store.list_hosts()
+        selected_host   = request.args.get("host", "").strip()
+
+        if selected_host:
+            payload = cache_store.load_host(selected_host)
+            if not payload:
+                flash(f"No cached results found for {selected_host}.", "warning")
+                return redirect(url_for("view_cached"))
+        else:
+            payload = cache_store.load()
+            if not payload and available_hosts:
+                return redirect(url_for("view_cached", host=available_hosts[0]))
+            if not payload:
+                flash("No cached results found. Run a discovery first.", "warning")
+                return redirect(url_for("index"))
+
         display_records = data_processor.normalise_for_display(payload["records"])
         return render_template(
             "inventory.html",
@@ -121,6 +133,8 @@ def create_app() -> Flask:
             host=payload.get("host", "cached"),
             count=len(display_records),
             cached_at=payload.get("timestamp"),
+            available_hosts=available_hosts,
+            selected_host=payload.get("host", ""),
         )
 
     @app.route("/saved", methods=["GET"])
@@ -278,6 +292,8 @@ def create_app() -> Flask:
         next_runs = {c["host"]: scheduler.format_next_run(c["host"]) for c in creds}
 
         raw_vms = database.load_latest_inventory_all_hosts()
+        if not raw_vms:
+            raw_vms = cache_store.load_all_hosts()
         vms     = data_processor.normalise_for_display(raw_vms)
 
         # Per-host summary derived from the consolidated records

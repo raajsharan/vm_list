@@ -1841,3 +1841,60 @@ code { font-family: var(--mono); font-size: 0.78rem; color: var(--accent); }
   .db-host-card { min-width: 200px; flex: 1; cursor: default; }
   .db-main { padding: 1rem; }
 }
+
+/* ── Host selector bar (cached inventory view) ───────────────── */
+.host-selector-bar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: .6rem 1rem;
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+}
+
+.hs-label {
+  font-family: var(--mono);
+  font-size: .7rem;
+  font-weight: 600;
+  letter-spacing: .08em;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.hs-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .4rem;
+}
+
+.hs-tab {
+  font-family: var(--mono);
+  font-size: .72rem;
+  color: var(--text-muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: .3rem .75rem;
+  text-decoration: none;
+  transition: color .15s, border-color .15s, background .15s;
+  white-space: nowrap;
+}
+
+.hs-tab:hover {
+  color: var(--accent);
+  border-color: var(--accent-dim);
+  background: var(--accent-dim);
+}
+
+.hs-tab--active {
+  color: var(--bg);
+  background: var(--accent);
+  border-color: var(--accent);
+  font-weight: 600;
+  pointer-events: none;
+}

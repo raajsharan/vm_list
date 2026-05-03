@@ -24,6 +24,20 @@
     </div>
   </div>
 
+  {% if available_hosts and available_hosts|length > 0 %}
+  <div class="host-selector-bar">
+    <label class="hs-label">vCenter / ESXi Host</label>
+    <div class="hs-tabs">
+      {% for h in available_hosts %}
+      <a href="{{ url_for('view_cached', host=h) }}"
+         class="hs-tab{% if h == selected_host %} hs-tab--active{% endif %}">
+        {{ h }}
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
   <div class="stats-bar">
     <div class="stat">
       <span class="stat-val">{{ count }}</span>
