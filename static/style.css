@@ -2007,3 +2007,105 @@ tr.ml-unmatched td:first-child {
   flex-wrap: wrap;
   align-items: center;
 }
+
+/* ── Uploaded file list ───────────────────────────────────────── */
+.mac-file-list {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-bottom: .25rem;
+}
+
+.mac-file-list-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: .5rem .85rem;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: .68rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+
+.mac-file-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: .6rem .85rem;
+  border-bottom: 1px solid var(--border);
+  gap: .75rem;
+  transition: background .12s;
+}
+.mac-file-row:last-child { border-bottom: none; }
+.mac-file-row:hover { background: rgba(255,255,255,.02); }
+
+.mfr-left {
+  display: flex;
+  align-items: flex-start;
+  gap: .6rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.mfr-icon {
+  color: var(--accent);
+  font-size: .9rem;
+  flex-shrink: 0;
+  margin-top: .1rem;
+}
+
+.mfr-info {
+  display: flex;
+  flex-direction: column;
+  gap: .15rem;
+  min-width: 0;
+}
+
+.mfr-name {
+  font-family: var(--mono);
+  font-size: .78rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mfr-meta {
+  font-size: .7rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.mfr-delete {
+  flex-shrink: 0;
+  opacity: .55;
+  transition: opacity .15s;
+}
+.mfr-delete:hover { opacity: 1; }
+
+.btn--xs {
+  font-size: .68rem !important;
+  padding: .2rem .55rem !important;
+}
+
+/* ── Selected files preview in drop zone ─────────────────────── */
+.mac-selected-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .35rem;
+  margin-top: .3rem;
+}
+
+.mac-selected-file {
+  font-family: var(--mono);
+  font-size: .7rem;
+  color: var(--accent);
+  background: var(--accent-dim);
+  border: 1px solid rgba(79,163,224,.25);
+  border-radius: var(--radius);
+  padding: .2rem .5rem;
+  white-space: nowrap;
+}

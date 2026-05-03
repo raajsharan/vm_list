@@ -1,9 +1,9 @@
 """
 mac_lookup.py
 -------------
-Parse, store and index the MAC-to-IP spreadsheet uploaded via the Settings page.
-Normalises every MAC format (Cisco dot-notation, colon, hyphen) to 12 lowercase
-hex chars so cross-format comparison always works.
+Parse, store and index one or more MAC-to-IP mapping spreadsheets.
+Each uploaded file is stored independently under cache/mac_mappings/.
+The combined index from all files is used for lookups.
 """
 
 import csv
@@ -12,14 +12,18 @@ import json
 import logging
 import os
 import re
+import secrets
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-_BASE        = os.path.dirname(__file__)
-_CACHE_DIR   = os.path.join(_BASE, "cache")
-MAPPING_FILE = os.path.join(_CACHE_DIR, "mac_mapping.json")
-META_FILE    = os.path.join(_CACHE_DIR, "mac_mapping_meta.json")
+_BASE         = os.path.dirname(__file__)
+_CACHE_DIR    = os.path.join(_BASE, "cache")
+_MAPPINGS_DIR = os.path.join(_CACHE_DIR, "mac_mappings")
+
+# Legacy single-file paths (kept only for migration)
+_LEGACY_DATA = os.path.join(_CACHE_DIR, "mac_mapping.json")
+_LEGACY_META = os.path.join(_CACHE_DIR, "mac_mapping_meta.json")
 
 
 # ---------------------------------------------------------------------------
@@ -37,12 +41,12 @@ def normalize_mac(mac: str) -> str:
 # ---------------------------------------------------------------------------
 
 _COL_ALIASES: dict[str, list[str]] = {
-    "mac":          ["mac address", "mac_address", "macaddress", "mac", "mac addr"],
-    "ip":           ["ip address", "ip_address", "ipaddress", "ip", "ip addr", "mapped ip"],
-    "lan_segment":  ["lan segment", "lan_segment", "segment", "network", "subnet"],
-    "vlan_group":   ["vlan group", "vlan_group", "vlan", "vlan name"],
-    "data_retrieved": ["data retrieved", "date retrieved", "retrieved", "timestamp",
-                       "date", "last updated", "updated"],
+    "mac":           ["mac address", "mac_address", "macaddress", "mac", "mac addr"],
+    "ip":            ["ip address", "ip_address", "ipaddress", "ip", "ip addr", "mapped ip"],
+    "lan_segment":   ["lan segment", "lan_segment", "segment", "network", "subnet"],
+    "vlan_group":    ["vlan group", "vlan_group", "vlan", "vlan name"],
+    "data_retrieved":["data retrieved", "date retrieved", "retrieved", "timestamp",
+                      "date", "last updated", "updated"],
 }
 
 
@@ -62,12 +66,9 @@ def parse_file(file_stream) -> tuple[list[dict], dict]:
     """
     Parse an uploaded .xlsx or .csv file.
     Returns (normalised_rows, meta_dict).
-    Each normalised row contains: mac_raw, mac_norm, ip_address,
-    lan_segment, vlan_group, data_retrieved.
     """
     filename = getattr(file_stream, "filename", "") or ""
     content  = file_stream.read()
-
     raw_rows: list[dict] = []
 
     if filename.lower().endswith(".csv"):
@@ -101,11 +102,8 @@ def parse_file(file_stream) -> tuple[list[dict], dict]:
         wb.close()
 
     if not raw_rows:
-        return [], {
-            "uploaded_at": datetime.utcnow().isoformat() + "Z",
-            "filename": filename,
-            "row_count": 0,
-        }
+        return [], {"uploaded_at": datetime.utcnow().isoformat() + "Z",
+                    "filename": filename, "row_count": 0}
 
     all_headers = list(raw_rows[0].keys())
     mac_col  = _find_col(all_headers, "mac")
@@ -132,12 +130,12 @@ def parse_file(file_stream) -> tuple[list[dict], dict]:
         })
 
     meta = {
-        "uploaded_at": datetime.utcnow().isoformat() + "Z",
-        "filename":    filename,
-        "row_count":   len(normalised),
-        "total_rows":  len(raw_rows),
+        "uploaded_at":  datetime.utcnow().isoformat() + "Z",
+        "filename":     filename,
+        "row_count":    len(normalised),
+        "total_rows":   len(raw_rows),
         "cols_detected": {
-            "mac":  mac_col, "ip": ip_col, "lan": lan_col,
+            "mac": mac_col, "ip": ip_col, "lan": lan_col,
             "vlan": vlan_col, "data": data_col,
         },
     }
@@ -145,50 +143,171 @@ def parse_file(file_stream) -> tuple[list[dict], dict]:
 
 
 # ---------------------------------------------------------------------------
-# Persistence
+# Multi-file persistence
 # ---------------------------------------------------------------------------
 
-def save_mapping(rows: list[dict], meta: dict) -> None:
-    os.makedirs(_CACHE_DIR, exist_ok=True)
-    try:
-        with open(MAPPING_FILE, "w", encoding="utf-8") as fh:
-            json.dump(rows, fh, indent=2, default=str)
-        with open(META_FILE, "w", encoding="utf-8") as fh:
-            json.dump(meta, fh, indent=2, default=str)
-        logger.info("Saved %d MAC mapping rows from %s", len(rows), meta.get("filename"))
-    except OSError as exc:
-        logger.warning("Could not save MAC mapping: %s", exc)
+def _ensure_dir() -> None:
+    os.makedirs(_MAPPINGS_DIR, exist_ok=True)
 
 
-def load_mapping() -> list[dict]:
-    if not os.path.exists(MAPPING_FILE):
-        return []
+def _new_file_id() -> str:
+    return datetime.utcnow().strftime("%Y%m%d_%H%M%S") + "_" + secrets.token_hex(3)
+
+
+def _file_path(file_id: str) -> str:
+    return os.path.join(_MAPPINGS_DIR, f"{file_id}.json")
+
+
+def _migrate_legacy() -> None:
+    """Move old single-file mapping into the multi-file store (runs once)."""
+    if not os.path.exists(_LEGACY_DATA):
+        return
     try:
-        with open(MAPPING_FILE, "r", encoding="utf-8") as fh:
-            return json.load(fh)
+        with open(_LEGACY_DATA, "r", encoding="utf-8") as fh:
+            rows = json.load(fh)
+        meta: dict = {}
+        if os.path.exists(_LEGACY_META):
+            with open(_LEGACY_META, "r", encoding="utf-8") as fh:
+                meta = json.load(fh)
+        if rows:
+            fid = _new_file_id()
+            meta.setdefault("filename",    "legacy_mapping.json")
+            meta.setdefault("uploaded_at", datetime.utcnow().isoformat() + "Z")
+            meta.setdefault("row_count",   len(rows))
+            _ensure_dir()
+            payload = dict(meta)
+            payload["id"]   = fid
+            payload["rows"] = rows
+            with open(_file_path(fid), "w", encoding="utf-8") as fh:
+                json.dump(payload, fh, indent=2, default=str)
+            logger.info("Migrated legacy MAC mapping (%d rows) to id=%s", len(rows), fid)
+        os.remove(_LEGACY_DATA)
+        if os.path.exists(_LEGACY_META):
+            os.remove(_LEGACY_META)
     except (OSError, json.JSONDecodeError) as exc:
-        logger.warning("Could not load MAC mapping: %s", exc)
-        return []
+        logger.warning("Legacy MAC mapping migration failed: %s", exc)
 
 
-def load_meta() -> dict:
-    if not os.path.exists(META_FILE):
-        return {}
+def save_mapping_file(rows: list[dict], meta: dict) -> str:
+    """Save a new mapping file. Returns the generated file_id."""
+    _ensure_dir()
+    _migrate_legacy()
+    fid = _new_file_id()
+    payload = dict(meta)
+    payload["id"]   = fid
+    payload["rows"] = rows
     try:
-        with open(META_FILE, "r", encoding="utf-8") as fh:
-            return json.load(fh)
-    except (OSError, json.JSONDecodeError):
-        return {}
+        with open(_file_path(fid), "w", encoding="utf-8") as fh:
+            json.dump(payload, fh, indent=2, default=str)
+        logger.info("Saved MAC mapping file id=%s (%d rows) from %s",
+                    fid, len(rows), meta.get("filename"))
+    except OSError as exc:
+        logger.warning("Could not save MAC mapping file: %s", exc)
+    return fid
 
 
-def build_index(rows: list[dict]) -> dict[str, dict]:
-    """Return {mac_norm: row} for O(1) lookups."""
-    return {r["mac_norm"]: r for r in rows if r.get("mac_norm")}
+def list_mapping_files() -> list[dict]:
+    """
+    Return meta for all stored mapping files (no rows), newest first.
+    Triggers legacy migration on first call.
+    """
+    _migrate_legacy()
+    if not os.path.exists(_MAPPINGS_DIR):
+        return []
+    files = []
+    for fname in os.listdir(_MAPPINGS_DIR):
+        if not fname.endswith(".json"):
+            continue
+        fpath = os.path.join(_MAPPINGS_DIR, fname)
+        try:
+            with open(fpath, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+            files.append({
+                "id":            data.get("id", fname[:-5]),
+                "filename":      data.get("filename", fname),
+                "uploaded_at":   data.get("uploaded_at", ""),
+                "row_count":     data.get("row_count", 0),
+                "cols_detected": data.get("cols_detected", {}),
+            })
+        except (OSError, json.JSONDecodeError):
+            pass
+    return sorted(files, key=lambda x: x["uploaded_at"], reverse=True)
 
 
-def clear_mapping() -> None:
-    for f in (MAPPING_FILE, META_FILE):
+def load_all_rows() -> list[dict]:
+    """Load and combine rows from every stored mapping file."""
+    _migrate_legacy()
+    if not os.path.exists(_MAPPINGS_DIR):
+        return []
+    all_rows: list[dict] = []
+    for fname in os.listdir(_MAPPINGS_DIR):
+        if not fname.endswith(".json"):
+            continue
+        fpath = os.path.join(_MAPPINGS_DIR, fname)
+        try:
+            with open(fpath, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+            all_rows.extend(data.get("rows", []))
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning("Could not read MAC mapping %s: %s", fname, exc)
+    return all_rows
+
+
+def delete_mapping_file(file_id: str) -> bool:
+    """Delete a specific mapping file. Returns True if deleted."""
+    path = _file_path(file_id)
+    try:
+        os.remove(path)
+        logger.info("Deleted MAC mapping file id=%s", file_id)
+        return True
+    except FileNotFoundError:
+        return False
+
+
+def clear_all_mappings() -> int:
+    """Delete all mapping files. Returns count of files removed."""
+    if not os.path.exists(_MAPPINGS_DIR):
+        return 0
+    count = 0
+    for fname in os.listdir(_MAPPINGS_DIR):
+        if fname.endswith(".json"):
+            try:
+                os.remove(os.path.join(_MAPPINGS_DIR, fname))
+                count += 1
+            except OSError:
+                pass
+    for f in (_LEGACY_DATA, _LEGACY_META):
         try:
             os.remove(f)
         except FileNotFoundError:
             pass
+    return count
+
+
+def build_index(rows: list[dict]) -> dict[str, dict]:
+    """Return {mac_norm: row} for O(1) lookups. First entry wins on duplicates."""
+    index: dict[str, dict] = {}
+    for r in rows:
+        norm = r.get("mac_norm")
+        if norm and norm not in index:
+            index[norm] = r
+    return index
+
+
+# ---------------------------------------------------------------------------
+# Backward-compat shims (used by old routes that referenced load_mapping /
+# load_meta / save_mapping / clear_mapping)
+# ---------------------------------------------------------------------------
+
+def load_mapping() -> list[dict]:
+    return load_all_rows()
+
+def load_meta() -> dict:
+    files = list_mapping_files()
+    return files[0] if files else {}
+
+def save_mapping(rows: list[dict], meta: dict) -> None:
+    save_mapping_file(rows, meta)
+
+def clear_mapping() -> None:
+    clear_all_mappings()

@@ -353,12 +353,12 @@ def create_app() -> Flask:
 
     @app.route("/settings", methods=["GET"])
     def settings():
-        cfg      = config_store.load()
-        running  = int(os.environ.get("PORT", 5000))
-        mac_meta = mac_lookup_store.load_meta()
+        cfg       = config_store.load()
+        running   = int(os.environ.get("PORT", 5000))
+        mac_files = mac_lookup_store.list_mapping_files()
         return render_template("settings.html", cfg=cfg, running_port=running,
                                env_file=config_store.env_file_path(),
-                               mac_meta=mac_meta)
+                               mac_files=mac_files)
 
     @app.route("/settings/save", methods=["POST"])
     def settings_save():
@@ -449,39 +449,52 @@ def create_app() -> Flask:
 
     @app.route("/settings/upload-mac", methods=["POST"])
     def upload_mac_file():
-        f = request.files.get("mac_file")
-        if not f or not f.filename:
+        uploaded_files = request.files.getlist("mac_file")
+        if not uploaded_files or all(not f.filename for f in uploaded_files):
             flash("No file selected.", "error")
             return redirect(url_for("settings"))
 
-        ext = os.path.splitext(f.filename)[1].lower()
-        if ext not in (".xlsx", ".xls", ".csv"):
-            flash("Unsupported file type. Please upload a .xlsx or .csv file.", "error")
-            return redirect(url_for("settings"))
+        success_count = 0
+        for f in uploaded_files:
+            if not f.filename:
+                continue
+            ext = os.path.splitext(f.filename)[1].lower()
+            if ext not in (".xlsx", ".xls", ".csv"):
+                flash(f"\"{f.filename}\" skipped — unsupported type (use .xlsx or .csv).", "warning")
+                continue
+            try:
+                rows, meta = mac_lookup_store.parse_file(f)
+                if not rows:
+                    flash(f"\"{f.filename}\" parsed but no valid MAC rows found. "
+                          "Check column headers (MAC Address, IP Address).", "warning")
+                    continue
+                mac_lookup_store.save_mapping_file(rows, meta)
+                flash(
+                    f"\"{meta['filename']}\" — {len(rows)} entries added. "
+                    f"MAC: {meta['cols_detected']['mac']}, "
+                    f"IP: {meta['cols_detected']['ip']}.",
+                    "success",
+                )
+                success_count += 1
+            except Exception as exc:
+                logger.exception("MAC file parse error for %s", f.filename)
+                flash(f"Failed to parse \"{f.filename}\": {exc}", "error")
 
-        try:
-            rows, meta = mac_lookup_store.parse_file(f)
-            if not rows:
-                flash("File parsed but no valid MAC address rows were found. "
-                      "Check that the file has 'MAC Address' and 'IP Address' columns.", "warning")
-                return redirect(url_for("settings"))
-            mac_lookup_store.save_mapping(rows, meta)
-            flash(
-                f"MAC mapping loaded: {len(rows)} entries from \"{meta['filename']}\". "
-                f"Columns detected — MAC: {meta['cols_detected']['mac']}, "
-                f"IP: {meta['cols_detected']['ip']}.",
-                "success",
-            )
-        except Exception as exc:
-            logger.exception("MAC file parse error")
-            flash(f"Failed to parse file: {exc}", "error")
+        return redirect(url_for("settings"))
 
+    @app.route("/settings/delete-mac/<file_id>", methods=["POST"])
+    def delete_mac_file(file_id):
+        deleted = mac_lookup_store.delete_mapping_file(file_id)
+        if deleted:
+            flash("Mapping file removed.", "info")
+        else:
+            flash("File not found.", "warning")
         return redirect(url_for("settings"))
 
     @app.route("/settings/clear-mac", methods=["POST"])
     def clear_mac_file():
-        mac_lookup_store.clear_mapping()
-        flash("MAC address mapping cleared.", "info")
+        count = mac_lookup_store.clear_all_mappings()
+        flash(f"All {count} MAC mapping file(s) cleared.", "info")
         return redirect(url_for("settings"))
 
     # -----------------------------------------------------------------------

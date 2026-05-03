@@ -86,70 +86,85 @@
         </form>
       </div>
 
-      <!-- MAC Address Mapping File card -->
+      <!-- MAC Address Mapping Files card -->
       <div class="card" style="margin-top:1rem">
         <div class="card-header">
           <span class="card-label">02</span>
-          <h2 class="card-title">MAC Address → IP Mapping File</h2>
+          <h2 class="card-title">MAC Address → IP Mapping Files</h2>
         </div>
         <p class="hero-sub" style="margin:.5rem 0 1rem">
-          Upload an Excel (.xlsx) or CSV file that maps MAC addresses to IP addresses,
-          LAN segments and VLAN groups. Used by the
-          <a href="{{ url_for('mac_lookup') }}" class="accent">MAC Lookup</a> page.
+          Upload one or more Excel (.xlsx) or CSV files. All files are combined
+          for the <a href="{{ url_for('mac_lookup') }}" class="accent">MAC Lookup</a> page.
         </p>
 
-        {% if mac_meta.get('filename') %}
-        <div class="mac-file-status">
-          <div class="mfs-row">
-            <span class="mfs-key">File</span>
-            <span class="mfs-val accent">{{ mac_meta.filename }}</span>
+        <!-- Uploaded files list -->
+        {% if mac_files %}
+        <div class="mac-file-list">
+          <div class="mac-file-list-header">
+            <span>{{ mac_files | length }} file{{ 's' if mac_files | length != 1 else '' }} loaded
+              — {{ mac_files | sum(attribute='row_count') }} total MAC records</span>
+            <form method="POST" action="{{ url_for('clear_mac_file') }}" style="display:inline">
+              <button type="submit" class="btn btn--ghost btn--xs"
+                      onclick="return confirm('Remove all MAC mapping files?')">
+                ✕ Clear All
+              </button>
+            </form>
           </div>
-          <div class="mfs-row">
-            <span class="mfs-key">Uploaded</span>
-            <span class="mfs-val">{{ mac_meta.get('uploaded_at', '')[:19] | replace('T',' ') }} UTC</span>
+          {% for f in mac_files %}
+          {% set cols = f.get('cols_detected', {}) %}
+          <div class="mac-file-row">
+            <div class="mfr-left">
+              <span class="mfr-icon">◈</span>
+              <div class="mfr-info">
+                <span class="mfr-name accent">{{ f.filename }}</span>
+                <span class="mfr-meta">
+                  {{ f.get('uploaded_at', '')[:19] | replace('T',' ') }} UTC
+                  &nbsp;·&nbsp;
+                  <span style="color:var(--green)">{{ f.row_count }} records</span>
+                  {% if cols.get('mac') %}
+                    &nbsp;·&nbsp; MAC: <code>{{ cols.mac }}</code>
+                  {% endif %}
+                  {% if cols.get('ip') %}
+                    &nbsp;·&nbsp; IP: <code>{{ cols.ip }}</code>
+                  {% endif %}
+                  {% if cols.get('vlan') %}
+                    &nbsp;·&nbsp; VLAN: <code>{{ cols.vlan }}</code>
+                  {% endif %}
+                  {% if cols.get('data') %}
+                    &nbsp;·&nbsp; Retrieved: <code>{{ cols.data }}</code>
+                  {% endif %}
+                </span>
+              </div>
+            </div>
+            <form method="POST" action="{{ url_for('delete_mac_file', file_id=f.id) }}">
+              <button type="submit" class="btn btn--ghost btn--xs mfr-delete"
+                      title="Remove this file"
+                      onclick="return confirm('Remove {{ f.filename }}?')">✕</button>
+            </form>
           </div>
-          <div class="mfs-row">
-            <span class="mfs-key">Entries</span>
-            <span class="mfs-val" style="color:var(--green)">{{ mac_meta.get('row_count', 0) }} MAC records</span>
-          </div>
-          {% set cols = mac_meta.get('cols_detected', {}) %}
-          {% if cols.get('mac') %}
-          <div class="mfs-row">
-            <span class="mfs-key">Columns detected</span>
-            <span class="mfs-val">
-              MAC: <code>{{ cols.mac }}</code>
-              {% if cols.ip %}&nbsp;· IP: <code>{{ cols.ip }}</code>{% endif %}
-              {% if cols.lan %}&nbsp;· LAN: <code>{{ cols.lan }}</code>{% endif %}
-              {% if cols.vlan %}&nbsp;· VLAN: <code>{{ cols.vlan }}</code>{% endif %}
-              {% if cols.data %}&nbsp;· Retrieved: <code>{{ cols.data }}</code>{% endif %}
-            </span>
-          </div>
-          {% endif %}
+          {% endfor %}
         </div>
         {% endif %}
 
+        <!-- Upload form -->
         <form method="POST" action="{{ url_for('upload_mac_file') }}"
-              enctype="multipart/form-data" class="mac-upload-form">
+              enctype="multipart/form-data" class="mac-upload-form" style="margin-top:{% if mac_files %}1rem{% else %}0{% endif %}">
           <div class="mac-drop-zone" id="macDropZone">
             <span class="mac-drop-icon">⊕</span>
-            <span class="mac-drop-text" id="macDropText">
-              Drop .xlsx / .csv here or <label for="macFileInput" class="mac-browse-link">browse</label>
-            </span>
+            <div>
+              <span class="mac-drop-text" id="macDropText">
+                Drop .xlsx / .csv files here or
+                <label for="macFileInput" class="mac-browse-link">browse</label>
+              </span>
+              <div class="mac-selected-files" id="macSelectedFiles" style="display:none"></div>
+            </div>
             <input type="file" name="mac_file" id="macFileInput"
-                   accept=".xlsx,.xls,.csv" style="display:none" />
+                   accept=".xlsx,.xls,.csv" multiple style="display:none" />
           </div>
           <div class="mac-upload-actions">
             <button type="submit" class="btn btn--primary" id="macUploadBtn" disabled>
-              ↑ Upload &amp; Parse
+              ↑ Upload &amp; Add
             </button>
-            {% if mac_meta.get('filename') %}
-            <form method="POST" action="{{ url_for('clear_mac_file') }}" style="display:inline">
-              <button type="submit" class="btn btn--ghost"
-                      onclick="return confirm('Clear the MAC mapping file?')">
-                ✕ Clear Mapping
-              </button>
-            </form>
-            {% endif %}
             <a href="{{ url_for('mac_lookup') }}" class="btn btn--outline">→ Open MAC Lookup</a>
           </div>
         </form>
@@ -159,6 +174,7 @@
           <pre class="code-block" style="font-size:.7rem">MAC Address | IP Address | LAN Segment | VLAN Group | Data Retrieved</pre>
           <p class="setting-hint" style="margin-top:.4rem">
             Headers are detected automatically (case-insensitive). Column order does not matter.
+            Multiple files are merged — if the same MAC appears in two files, the first upload wins.
           </p>
         </div>
       </div>
@@ -265,22 +281,31 @@ python3 app.py --port 8080 --debug</pre>
 
 {% block scripts %}
 <script>
-  // ── MAC file picker / drop zone ──
-  const dropZone   = document.getElementById('macDropZone');
-  const fileInput  = document.getElementById('macFileInput');
-  const dropText   = document.getElementById('macDropText');
-  const uploadBtn  = document.getElementById('macUploadBtn');
+  // ── MAC file picker / drop zone (multi-file) ──
+  const dropZone     = document.getElementById('macDropZone');
+  const fileInput    = document.getElementById('macFileInput');
+  const dropText     = document.getElementById('macDropText');
+  const selectedDiv  = document.getElementById('macSelectedFiles');
+  const uploadBtn    = document.getElementById('macUploadBtn');
+
+  function updateFileList(files) {
+    if (!files || files.length === 0) {
+      selectedDiv.style.display = 'none';
+      dropText.style.display    = '';
+      uploadBtn.disabled        = true;
+      return;
+    }
+    dropText.style.display    = 'none';
+    selectedDiv.style.display = '';
+    selectedDiv.innerHTML = Array.from(files)
+      .map(f => `<span class="mac-selected-file">◈ ${f.name}</span>`).join('');
+    uploadBtn.disabled = false;
+  }
 
   if (dropZone && fileInput) {
     dropZone.addEventListener('click', () => fileInput.click());
 
-    fileInput.addEventListener('change', () => {
-      const f = fileInput.files[0];
-      if (f) {
-        dropText.textContent = f.name;
-        uploadBtn.disabled = false;
-      }
-    });
+    fileInput.addEventListener('change', () => updateFileList(fileInput.files));
 
     ['dragenter','dragover'].forEach(e =>
       dropZone.addEventListener(e, ev => { ev.preventDefault(); dropZone.classList.add('drag-over'); }));
@@ -288,14 +313,12 @@ python3 app.py --port 8080 --debug</pre>
       dropZone.addEventListener(e, ev => { ev.preventDefault(); dropZone.classList.remove('drag-over'); }));
 
     dropZone.addEventListener('drop', ev => {
-      const f = ev.dataTransfer.files[0];
-      if (f) {
-        const dt = new DataTransfer();
-        dt.items.add(f);
-        fileInput.files = dt.files;
-        dropText.textContent = f.name;
-        uploadBtn.disabled = false;
-      }
+      ev.preventDefault();
+      dropZone.classList.remove('drag-over');
+      const dt = new DataTransfer();
+      Array.from(ev.dataTransfer.files).forEach(f => dt.items.add(f));
+      fileInput.files = dt.files;
+      updateFileList(fileInput.files);
     });
   }
 
