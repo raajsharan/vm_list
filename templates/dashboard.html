@@ -1,0 +1,569 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — VMware Inventory{% endblock %}
+
+{% block content %}
+<div class="db-page">
+
+  <!-- ══════════════════════════════════════════════
+       LEFT SIDEBAR — host list + add
+       ══════════════════════════════════════════════ -->
+  <aside class="db-sidebar">
+
+    <div class="db-sidebar-hd">
+      <span class="db-sidebar-title">Hosts</span>
+      <button class="btn btn--primary btn--sm" id="addHostBtn">+ Add</button>
+    </div>
+
+    <!-- Quick summary -->
+    <div class="db-summary">
+      <div class="db-summary-stat">
+        <span class="db-summary-val">{{ total_vms }}</span>
+        <span class="db-summary-key">Total VMs</span>
+      </div>
+      <div class="db-summary-stat">
+        <span class="db-summary-val">{{ credentials | length }}</span>
+        <span class="db-summary-key">Hosts</span>
+      </div>
+      <div class="db-summary-stat">
+        <span class="db-summary-val" id="sbPoweredOn">—</span>
+        <span class="db-summary-key">Powered On</span>
+      </div>
+    </div>
+
+    <!-- Host cards -->
+    <div class="db-host-list" id="dbHostList">
+      {% if credentials %}
+        {% for c in credentials %}
+        {% set st = 'running' if c.host in running_hosts else ('ok' if c.last_status == 'success' else ('err' if c.last_status else 'idle')) %}
+        <div class="db-host-card db-host-card--{{ st }}"
+             data-host="{{ c.host }}" title="Click to filter">
+
+          <div class="dhc-row">
+            <span class="dhc-dot dhc-dot--{{ st }}"></span>
+            <span class="dhc-name">{{ c.host }}</span>
+            {% if c.host in running_hosts %}
+              <span class="dhc-pill dhc-pill--running">● Running</span>
+            {% elif st == 'ok' %}
+              <span class="dhc-pill dhc-pill--ok">✓ OK</span>
+            {% elif st == 'err' %}
+              <span class="dhc-pill dhc-pill--err">✗ Err</span>
+            {% endif %}
+          </div>
+
+          <div class="dhc-stats">
+            {% set cnt = host_stats.get(c.host, {}).get('count', 0) %}
+            <span class="dhc-vms">{{ cnt }} VMs</span>
+            {% if scheduler_jobs.get(c.host) and c.enabled %}
+              <span class="dhc-next">next {{ scheduler_jobs[c.host] }}</span>
+            {% elif not c.enabled %}
+              <span class="dhc-next na">paused</span>
+            {% endif %}
+          </div>
+
+          {% if host_stats.get(c.host, {}).get('discovered_at') %}
+          <div class="dhc-time">{{ host_stats[c.host].discovered_at }}</div>
+          {% endif %}
+
+          <div class="dhc-actions" onclick="event.stopPropagation()">
+            <form method="POST" action="{{ url_for('cred_run', host=c.host) }}"
+                  style="display:contents">
+              <button class="btn btn--primary btn--sm"
+                      {% if c.host in running_hosts %}disabled{% endif %}>
+                {% if c.host in running_hosts %}
+                  <span class="btn-spinner"></span>
+                {% else %}▶ Run{% endif %}
+              </button>
+            </form>
+            <button class="btn btn--ghost btn--sm edit-trigger"
+                    data-host="{{ c.host }}"
+                    data-username="{{ c.username }}"
+                    data-port="{{ c.port }}"
+                    data-ssl="{{ 'true' if c.verify_ssl else 'false' }}"
+                    data-interval="{{ c.interval_minutes }}"
+                    data-action="{{ url_for('cred_edit', host=c.host) }}">✎</button>
+            <form method="POST" action="{{ url_for('cred_toggle', host=c.host) }}"
+                  style="display:contents">
+              <button class="btn btn--ghost btn--sm" title="{{ 'Disable' if c.enabled else 'Enable' }}">
+                {% if c.enabled %}⏸{% else %}▷{% endif %}
+              </button>
+            </form>
+            <form method="POST" action="{{ url_for('cred_delete', host=c.host) }}"
+                  style="display:contents"
+                  onsubmit="return confirm('Delete {{ c.host }}?')">
+              <button class="btn btn--danger btn--sm">✕</button>
+            </form>
+          </div>
+        </div>
+        {% endfor %}
+      {% else %}
+        <div class="dhc-empty">
+          <div>No hosts saved yet.</div>
+          <div style="margin-top:0.4rem; font-size:0.75rem;">Click <strong>+ Add</strong> to start.</div>
+        </div>
+      {% endif %}
+    </div>
+
+  </aside><!-- /.db-sidebar -->
+
+  <!-- ══════════════════════════════════════════════
+       RIGHT MAIN — consolidated VM table
+       ══════════════════════════════════════════════ -->
+  <div class="db-main">
+
+    <!-- Header -->
+    <div class="db-main-hd">
+      <div>
+        <div class="page-label">CONSOLIDATED INVENTORY</div>
+        <h1 class="db-main-title">
+          All Virtual Machines
+          {% if running_hosts %}
+            <span class="db-live-badge">● LIVE</span>
+          {% endif %}
+        </h1>
+      </div>
+      <div class="db-main-actions">
+        <a href="{{ url_for('export_all_csv') }}" class="btn btn--secondary btn--sm">↓ CSV</a>
+        <a href="{{ url_for('export_all_json') }}" class="btn btn--ghost btn--sm">↓ JSON</a>
+      </div>
+    </div>
+
+    <!-- Stats bar -->
+    <div class="db-stats">
+      <div class="db-stat">
+        <span class="db-stat-val">{{ total_vms }}</span>
+        <span class="db-stat-key">Total VMs</span>
+      </div>
+      <div class="db-stat">
+        <span class="db-stat-val">{{ distinct_hosts | length }}</span>
+        <span class="db-stat-key">Sources</span>
+      </div>
+      <div class="db-stat">
+        <span class="db-stat-val" id="mainPoweredOn">—</span>
+        <span class="db-stat-key">Powered On</span>
+      </div>
+      <div class="db-stat">
+        <span class="db-stat-val" id="mainFiltered">{{ total_vms }}</span>
+        <span class="db-stat-key">Shown</span>
+      </div>
+    </div>
+
+    <!-- Filter bar -->
+    <div class="filter-bar db-filter-bar">
+      <div class="search-wrapper">
+        <span class="search-icon">⌕</span>
+        <input type="text" id="searchInput" class="search-input"
+               placeholder="Search VM name, IP, hostname, OS…"
+               autocomplete="off" spellcheck="false" />
+        <button class="search-clear" id="searchClear" style="display:none">✕</button>
+      </div>
+      <div class="filter-controls">
+        <select id="hostFilter" class="filter-select">
+          <option value="">All hosts</option>
+          {% for h in distinct_hosts %}
+          <option value="{{ h }}">{{ h }}</option>
+          {% endfor %}
+        </select>
+        <select id="powerFilter" class="filter-select">
+          <option value="">All states</option>
+          <option value="poweredOn">Powered On</option>
+          <option value="poweredOff">Powered Off</option>
+          <option value="suspended">Suspended</option>
+        </select>
+        <button class="btn btn--ghost btn--sm" id="clearFiltersBtn">✕ Clear</button>
+      </div>
+    </div>
+
+    <!-- VM Table -->
+    {% if vms %}
+    <div class="table-wrapper db-table-wrapper">
+      <table class="vm-table" id="vmTable">
+        <thead>
+          <tr>
+            <th class="sortable" data-col="0">#</th>
+            <th class="sortable" data-col="1">Source Host <span class="sort-arrow"></span></th>
+            <th class="sortable" data-col="2">VM Name <span class="sort-arrow"></span></th>
+            <th class="sortable" data-col="3">Hostname <span class="sort-arrow"></span></th>
+            <th class="sortable" data-col="4">IP Address(es) <span class="sort-arrow"></span></th>
+            <th class="sortable" data-col="5">ESXi Host IP <span class="sort-arrow"></span></th>
+            <th class="sortable" data-col="6">OS Version <span class="sort-arrow"></span></th>
+            <th class="sortable" data-col="7">Power State <span class="sort-arrow"></span></th>
+            <th class="sortable" data-col="8">Discovered <span class="sort-arrow"></span></th>
+          </tr>
+        </thead>
+        <tbody id="vmBody">
+          {% for vm in vms %}
+          <tr class="vm-row" data-power="{{ vm.power_state }}" data-host="{{ vm.source_host }}">
+            <td class="row-num">{{ loop.index }}</td>
+            <td>
+              <span class="src-tag" data-host="{{ vm.source_host }}">
+                {{ vm.source_host or '—' }}
+              </span>
+            </td>
+            <td class="vm-name"><span class="name-text">{{ vm.name }}</span></td>
+            <td class="{% if vm.hostname == 'Not Available' %}na{% endif %}">{{ vm.hostname }}</td>
+            <td class="ip-cell">
+              {% if vm.ip_addresses != 'Not Available' %}
+                {% for ip in vm.ip_addresses.split(' | ') %}
+                  <span class="ip-tag">{{ ip }}</span>
+                {% endfor %}
+              {% else %}<span class="na">Not Available</span>{% endif %}
+            </td>
+            <td class="{% if vm.esxi_host_ip == 'Not Available' %}na{% endif %}">{{ vm.esxi_host_ip }}</td>
+            <td class="os-version {% if vm.os_version == 'Not Available' %}na{% endif %}">{{ vm.os_version }}</td>
+            <td>
+              <span class="power-badge power-badge--{{ vm.power_state }}">{{ vm.power_state }}</span>
+            </td>
+            <td class="cred-lastrun">{{ vm.discovered_at or '—' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <div class="no-results" id="noResults" style="display:none">No VMs match your filters.</div>
+    </div>
+    {% else %}
+    <div class="empty-state">
+      <div class="empty-icon">◈</div>
+      <p>No VM data yet.</p>
+      <p style="margin-top:0.5rem;font-size:0.85rem;color:var(--text-dim)">
+        Add a host and click <strong>▶ Run</strong> to discover VMs across all your vCenter / ESXi hosts.
+      </p>
+    </div>
+    {% endif %}
+
+  </div><!-- /.db-main -->
+
+</div><!-- /.db-page -->
+
+
+<!-- ══════════════════════════════════════════════
+     ADD HOST MODAL
+     ══════════════════════════════════════════════ -->
+<div class="edit-modal-overlay" id="addHostModal" role="dialog" aria-modal="true" hidden>
+  <div class="edit-modal" style="max-width:520px">
+    <div class="edit-modal-header">
+      <div>
+        <div class="edit-modal-label">NEW HOST</div>
+        <h3 class="edit-modal-title">Add vCenter / ESXi</h3>
+      </div>
+      <button class="err-modal-close" id="addHostClose" aria-label="Close">✕</button>
+    </div>
+    <form method="POST" action="{{ url_for('cred_add') }}" autocomplete="off" class="edit-modal-form">
+
+      <div class="edit-form-row">
+        <label class="edit-form-label" for="ah_host">Host / IP Address</label>
+        <input type="text" id="ah_host" name="host" class="form-input"
+               placeholder="192.168.1.10 or vcenter.lab.local"
+               required autocomplete="off" spellcheck="false" />
+      </div>
+
+      <div class="edit-form-row">
+        <label class="edit-form-label" for="ah_user">Username</label>
+        <input type="text" id="ah_user" name="username" class="form-input"
+               placeholder="administrator@vsphere.local"
+               required autocomplete="off" spellcheck="false" />
+      </div>
+
+      <div class="edit-form-row">
+        <label class="edit-form-label" for="ah_pass">
+          Password <span class="form-hint">Encrypted at rest</span>
+        </label>
+        <div class="password-wrapper">
+          <input type="password" id="ah_pass" name="password" class="form-input"
+                 placeholder="••••••••••••" required autocomplete="current-password" />
+          <button type="button" class="pw-toggle" id="ahPwBtn">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="2">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+              <circle cx="12" cy="12" r="3"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="edit-form-split">
+        <div class="edit-form-row">
+          <label class="edit-form-label" for="ah_port">Port</label>
+          <input type="number" id="ah_port" name="port" class="form-input"
+                 value="443" min="1" max="65535" />
+        </div>
+        <div class="edit-form-row">
+          <label class="edit-form-label" for="ah_int">
+            Interval <span class="form-hint">min</span>
+          </label>
+          <input type="number" id="ah_int" name="interval_minutes" class="form-input"
+                 value="60" min="5" max="10080" />
+        </div>
+      </div>
+
+      <div class="edit-form-row">
+        <label class="check-label">
+          <input type="checkbox" name="verify_ssl" id="ah_ssl" class="check-input" />
+          <span class="check-box"></span>
+          <span>Enable SSL verification</span>
+        </label>
+        <span class="form-hint" style="margin-top:0.2rem">Disable for self-signed certs</span>
+      </div>
+
+      <div class="edit-modal-footer">
+        <button type="button" class="btn btn--ghost btn--sm" id="addHostCancel">Cancel</button>
+        <button type="submit" class="btn btn--primary btn--sm">Save &amp; Schedule</button>
+      </div>
+
+    </form>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════════
+     EDIT HOST MODAL
+     ══════════════════════════════════════════════ -->
+<div class="edit-modal-overlay" id="editModal" role="dialog" aria-modal="true" hidden>
+  <div class="edit-modal">
+    <div class="edit-modal-header">
+      <div>
+        <div class="edit-modal-label">EDIT HOST</div>
+        <h3 class="edit-modal-title" id="editModalTitle"></h3>
+      </div>
+      <button class="err-modal-close" id="editModalClose" aria-label="Close">✕</button>
+    </div>
+    <form method="POST" id="editModalForm" class="edit-modal-form" autocomplete="off">
+
+      <div class="edit-form-row">
+        <label class="edit-form-label" for="e_username">Username</label>
+        <input type="text" id="e_username" name="username" class="form-input"
+               required autocomplete="off" spellcheck="false" />
+      </div>
+
+      <div class="edit-form-row">
+        <label class="edit-form-label" for="e_password">
+          Password <span class="form-hint">Leave blank to keep current</span>
+        </label>
+        <div class="password-wrapper">
+          <input type="password" id="e_password" name="password" class="form-input"
+                 placeholder="•••••••• (unchanged)" autocomplete="new-password" />
+          <button type="button" class="pw-toggle" id="editPwBtn">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="2">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+              <circle cx="12" cy="12" r="3"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="edit-form-split">
+        <div class="edit-form-row">
+          <label class="edit-form-label" for="e_port">Port</label>
+          <input type="number" id="e_port" name="port" class="form-input"
+                 min="1" max="65535" />
+        </div>
+        <div class="edit-form-row">
+          <label class="edit-form-label" for="e_interval">
+            Interval <span class="form-hint">min</span>
+          </label>
+          <input type="number" id="e_interval" name="interval_minutes" class="form-input"
+                 min="5" max="10080" />
+        </div>
+      </div>
+
+      <div class="edit-form-row">
+        <label class="check-label">
+          <input type="checkbox" name="verify_ssl" id="e_ssl" class="check-input" />
+          <span class="check-box"></span>
+          <span>Enable SSL verification</span>
+        </label>
+      </div>
+
+      <div class="edit-modal-footer">
+        <button type="button" class="btn btn--ghost btn--sm" id="editModalCancel">Cancel</button>
+        <button type="submit" class="btn btn--primary btn--sm">Save Changes</button>
+      </div>
+
+    </form>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  /* ── Host color palette ── */
+  const PALETTE = ['#4fa3e0','#3ecf8e','#f0c040','#f07840','#c084fc','#fb7185','#38bdf8','#a3e635'];
+  const hostColorMap = {};
+  function hostColor(h) {
+    if (!hostColorMap[h]) {
+      let hash = 0;
+      for (let i = 0; i < h.length; i++) hash = (hash * 31 + h.charCodeAt(i)) & 0xffff;
+      hostColorMap[h] = PALETTE[hash % PALETTE.length];
+    }
+    return hostColorMap[h];
+  }
+
+  /* ── Colour source-host tags ── */
+  document.querySelectorAll('.src-tag').forEach(tag => {
+    const c = hostColor(tag.dataset.host || '');
+    tag.style.background  = c + '18';
+    tag.style.color       = c;
+    tag.style.borderColor = c + '40';
+  });
+
+  /* ── Count powered-on ── */
+  const allRows = Array.from(document.querySelectorAll('tr.vm-row'));
+  const poweredOnCount = allRows.filter(r => r.dataset.power === 'poweredOn').length;
+  ['sbPoweredOn', 'mainPoweredOn'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = poweredOnCount;
+  });
+
+  /* ══════════════════════════════════
+     FILTER ENGINE
+     ══════════════════════════════════ */
+  const searchInput  = document.getElementById('searchInput');
+  const searchClear  = document.getElementById('searchClear');
+  const hostFilter   = document.getElementById('hostFilter');
+  const powerFilter  = document.getElementById('powerFilter');
+  const filteredSpan = document.getElementById('mainFiltered');
+  const noResults    = document.getElementById('noResults');
+  const clearBtn     = document.getElementById('clearFiltersBtn');
+
+  function applyFilter() {
+    const q     = (searchInput?.value || '').toLowerCase().trim();
+    const host  = hostFilter?.value  || '';
+    const power = powerFilter?.value || '';
+    let visible = 0;
+
+    allRows.forEach((row, idx) => {
+      const text  = row.textContent.toLowerCase();
+      const match = (!q     || text.includes(q))
+                 && (!host  || row.dataset.host  === host)
+                 && (!power || row.dataset.power === power);
+      row.style.display = match ? '' : 'none';
+      if (match) {
+        visible++;
+        const rn = row.querySelector('.row-num');
+        if (rn) rn.textContent = visible;
+      }
+    });
+
+    if (filteredSpan) filteredSpan.textContent = visible;
+    if (noResults)    noResults.style.display  = visible === 0 ? 'block' : 'none';
+    if (searchClear)  searchClear.style.display = q ? 'inline-flex' : 'none';
+
+    // Sync sidebar active state
+    document.querySelectorAll('.db-host-card').forEach(c => {
+      c.classList.toggle('db-host-card--active', host !== '' && c.dataset.host === host);
+    });
+  }
+
+  searchInput?.addEventListener('input', applyFilter);
+  hostFilter?.addEventListener('change', applyFilter);
+  powerFilter?.addEventListener('change', applyFilter);
+  searchClear?.addEventListener('click', () => { searchInput.value = ''; applyFilter(); searchInput.focus(); });
+  clearBtn?.addEventListener('click', () => {
+    searchInput.value = '';
+    hostFilter.value  = '';
+    powerFilter.value = '';
+    applyFilter();
+  });
+
+  /* ── Sidebar card click → filter ── */
+  document.querySelectorAll('.db-host-card').forEach(card => {
+    card.addEventListener('click', e => {
+      if (e.target.closest('.dhc-actions') || e.target.closest('button') || e.target.closest('form')) return;
+      const h = card.dataset.host;
+      hostFilter.value = (hostFilter.value === h) ? '' : h;
+      applyFilter();
+    });
+  });
+
+  /* ══════════════════════════════════
+     TABLE SORT
+     ══════════════════════════════════ */
+  const tbody = document.getElementById('vmBody');
+  let sortCol = -1, sortAsc = true;
+
+  document.querySelectorAll('th.sortable').forEach(th => {
+    th.addEventListener('click', () => {
+      const col = parseInt(th.dataset.col);
+      sortAsc = (sortCol === col) ? !sortAsc : true;
+      sortCol = col;
+      document.querySelectorAll('th.sortable').forEach(t => t.classList.remove('sorted-asc','sorted-desc'));
+      th.classList.add(sortAsc ? 'sorted-asc' : 'sorted-desc');
+      const rows = Array.from(tbody.querySelectorAll('tr.vm-row'));
+      rows.sort((a, b) => {
+        const av = a.cells[col]?.textContent.trim() || '';
+        const bv = b.cells[col]?.textContent.trim() || '';
+        return sortAsc ? av.localeCompare(bv, undefined, {numeric:true})
+                       : bv.localeCompare(av, undefined, {numeric:true});
+      });
+      rows.forEach(r => tbody.appendChild(r));
+      applyFilter();
+    });
+  });
+
+  /* ══════════════════════════════════
+     ADD HOST MODAL
+     ══════════════════════════════════ */
+  const addModal    = document.getElementById('addHostModal');
+  const addClose    = document.getElementById('addHostClose');
+  const addCancel   = document.getElementById('addHostCancel');
+  const addHostBtn  = document.getElementById('addHostBtn');
+  const ahPwBtn     = document.getElementById('ahPwBtn');
+  const ahPwField   = document.getElementById('ah_pass');
+
+  function openAddModal()  { addModal.hidden = false; document.body.style.overflow = 'hidden'; document.getElementById('ah_host').focus(); }
+  function closeAddModal() { addModal.hidden = true;  document.body.style.overflow = ''; }
+
+  addHostBtn?.addEventListener('click', openAddModal);
+  addClose?.addEventListener('click', closeAddModal);
+  addCancel?.addEventListener('click', closeAddModal);
+  addModal?.addEventListener('click', e => { if (e.target === addModal) closeAddModal(); });
+  ahPwBtn?.addEventListener('click', () => { ahPwField.type = ahPwField.type === 'password' ? 'text' : 'password'; });
+
+  /* ══════════════════════════════════
+     EDIT HOST MODAL
+     ══════════════════════════════════ */
+  const editModal   = document.getElementById('editModal');
+  const editForm    = document.getElementById('editModalForm');
+  const editClose   = document.getElementById('editModalClose');
+  const editCancel  = document.getElementById('editModalCancel');
+  const editPwField = document.getElementById('e_password');
+  const editPwBtn   = document.getElementById('editPwBtn');
+
+  document.querySelectorAll('.edit-trigger').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.getElementById('editModalTitle').textContent = btn.dataset.host;
+      editForm.action = btn.dataset.action;
+      document.getElementById('e_username').value  = btn.dataset.username;
+      document.getElementById('e_port').value      = btn.dataset.port;
+      document.getElementById('e_interval').value  = btn.dataset.interval;
+      document.getElementById('e_ssl').checked     = btn.dataset.ssl === 'true';
+      editPwField.value = '';
+      editModal.hidden = false;
+      document.body.style.overflow = 'hidden';
+      document.getElementById('e_username').focus();
+    });
+  });
+
+  function closeEditModal() { editModal.hidden = true; document.body.style.overflow = ''; }
+  editClose?.addEventListener('click', closeEditModal);
+  editCancel?.addEventListener('click', closeEditModal);
+  editModal?.addEventListener('click', e => { if (e.target === editModal) closeEditModal(); });
+  editPwBtn?.addEventListener('click', () => { editPwField.type = editPwField.type === 'password' ? 'text' : 'password'; });
+
+  /* Global ESC key */
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    if (!addModal?.hidden)  closeAddModal();
+    if (!editModal?.hidden) closeEditModal();
+  });
+
+  /* ── Auto-refresh when any host is running ── */
+  {% if running_hosts %}
+  setTimeout(() => location.reload(), 10000);
+  {% endif %}
+
+})();
+</script>
+{% endblock %}

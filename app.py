@@ -268,6 +268,69 @@ def create_app() -> Flask:
         return redirect(url_for("credentials"))
 
     # -----------------------------------------------------------------------
+    # Dashboard — consolidated multi-host view
+    # -----------------------------------------------------------------------
+
+    @app.route("/dashboard", methods=["GET"])
+    def dashboard():
+        creds     = credential_store.load_all()
+        running   = scheduler.active_hosts()
+        next_runs = {c["host"]: scheduler.format_next_run(c["host"]) for c in creds}
+
+        raw_vms = database.load_latest_inventory_all_hosts()
+        vms     = data_processor.normalise_for_display(raw_vms)
+
+        # Per-host summary derived from the consolidated records
+        host_stats: dict = {}
+        for vm in raw_vms:
+            h = vm["source_host"]
+            if h not in host_stats:
+                host_stats[h] = {"count": 0, "discovered_at": vm.get("discovered_at", "")}
+            host_stats[h]["count"] += 1
+
+        distinct_hosts = sorted(host_stats.keys())
+
+        return render_template(
+            "dashboard.html",
+            credentials=creds,
+            running_hosts=running,
+            scheduler_jobs=next_runs,
+            vms=vms,
+            host_stats=host_stats,
+            distinct_hosts=distinct_hosts,
+            total_vms=len(vms),
+        )
+
+    @app.route("/export/all/csv", methods=["GET"])
+    def export_all_csv():
+        raw = database.load_latest_inventory_all_hosts()
+        if not raw:
+            flash("No consolidated data to export. Run discovery on at least one host.", "warning")
+            return redirect(url_for("dashboard"))
+        rows = data_processor.to_csv_rows_consolidated(raw)
+        output = io.StringIO()
+        writer = csv.DictWriter(output, fieldnames=rows[0].keys())
+        writer.writeheader()
+        writer.writerows(rows)
+        return Response(
+            output.getvalue(),
+            mimetype="text/csv",
+            headers={"Content-Disposition": "attachment; filename=vm_inventory_all.csv"},
+        )
+
+    @app.route("/export/all/json", methods=["GET"])
+    def export_all_json():
+        raw = database.load_latest_inventory_all_hosts()
+        if not raw:
+            flash("No consolidated data to export.", "warning")
+            return redirect(url_for("dashboard"))
+        return Response(
+            json.dumps(raw, indent=2, default=str),
+            mimetype="application/json",
+            headers={"Content-Disposition": "attachment; filename=vm_inventory_all.json"},
+        )
+
+    # -----------------------------------------------------------------------
     # Settings routes
     # -----------------------------------------------------------------------
 

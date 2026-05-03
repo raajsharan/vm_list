@@ -156,6 +156,29 @@ def save_inventory(records: list[dict], source_host: str):
         session.close()
 
 
+def _row_to_dict(row: VmInventoryRecord, include_source: bool = False) -> dict:
+    d = {
+        "name":           _from_text(row.vm_name)        or "Not Available",
+        "hostname":       _from_text(row.hostname)        or "Not Available",
+        "ips":            _from_text(row.ip_addresses)    or ["Not Available"],
+        "esxi_host_name": _from_text(row.esxi_host_name)  or "Not Available",
+        "esxi_host_ip":   _from_text(row.esxi_host_ip)    or "Not Available",
+        "os_type":        _from_text(row.os_type)         or "Not Available",
+        "os_version":     _from_text(row.os_version)      or "Not Available",
+        "macs":           _from_text(row.mac_addresses)   or ["Not Available"],
+        "created_date":   _from_text(row.created_date)    or "Not Available",
+        "power_state":    _from_text(row.power_state)     or "unknown",
+        "tools_status":   _from_text(row.tools_status)    or "Not Available",
+    }
+    if include_source:
+        d["source_host"]   = row.source_host or ""
+        d["discovered_at"] = (
+            row.discovered_at.strftime("%Y-%m-%d %H:%M UTC")
+            if row.discovered_at else ""
+        )
+    return d
+
+
 def load_saved_inventory(limit: int = 500) -> list[dict]:
     if SessionLocal is None:
         logger.info("Database load skipped: no database configured.")
@@ -163,25 +186,50 @@ def load_saved_inventory(limit: int = 500) -> list[dict]:
 
     session = SessionLocal()
     try:
-        rows = session.query(VmInventoryRecord).order_by(VmInventoryRecord.id.desc()).limit(limit).all()
-        records = []
-        for row in rows:
-            records.append({
-                "name":            _from_text(row.vm_name) or "Not Available",
-                "hostname":        _from_text(row.hostname) or "Not Available",
-                "ips":             _from_text(row.ip_addresses) or ["Not Available"],
-                "esxi_host_name":  _from_text(row.esxi_host_name) or "Not Available",
-                "esxi_host_ip":    _from_text(row.esxi_host_ip) or "Not Available",
-                "os_type":         _from_text(row.os_type) or "Not Available",
-                "os_version":      _from_text(row.os_version) or "Not Available",
-                "macs":            _from_text(row.mac_addresses) or ["Not Available"],
-                "created_date":    _from_text(row.created_date) or "Not Available",
-                "power_state":     _from_text(row.power_state) or "unknown",
-                "tools_status":    _from_text(row.tools_status) or "Not Available",
-            })
-        return records
+        rows = (session.query(VmInventoryRecord)
+                .order_by(VmInventoryRecord.id.desc()).limit(limit).all())
+        return [_row_to_dict(r) for r in rows]
     except SQLAlchemyError as exc:
         logger.exception("Failed to load saved VM inventory: %s", exc)
+        return []
+    finally:
+        session.close()
+
+
+def load_latest_inventory_all_hosts() -> list[dict]:
+    """
+    Return the most-recent discovery snapshot for EVERY source host,
+    with source_host and discovered_at included in each record.
+    Used by the consolidated dashboard view.
+    """
+    if SessionLocal is None:
+        logger.info("Database load skipped: no database configured.")
+        return []
+
+    session = SessionLocal()
+    try:
+        from sqlalchemy import func
+        subq = (
+            session.query(
+                VmInventoryRecord.source_host,
+                func.max(VmInventoryRecord.discovered_at).label("max_dt"),
+            )
+            .group_by(VmInventoryRecord.source_host)
+            .subquery()
+        )
+        rows = (
+            session.query(VmInventoryRecord)
+            .join(
+                subq,
+                (VmInventoryRecord.source_host == subq.c.source_host)
+                & (VmInventoryRecord.discovered_at == subq.c.max_dt),
+            )
+            .order_by(VmInventoryRecord.source_host, VmInventoryRecord.id)
+            .all()
+        )
+        return [_row_to_dict(r, include_source=True) for r in rows]
+    except SQLAlchemyError as exc:
+        logger.exception("Failed to load consolidated inventory: %s", exc)
         return []
     finally:
         session.close()
