@@ -1,0 +1,206 @@
+{% extends "base.html" %}
+{% block title %}Settings — VMware Inventory{% endblock %}
+
+{% block content %}
+<div class="page-settings">
+
+  <div class="connect-hero">
+    <div class="hero-label">CONFIGURATION</div>
+    <h1 class="hero-title">App <span class="accent">Settings</span></h1>
+    <p class="hero-sub">Changes to port and debug mode are written to <code>.env</code> and take effect after a service restart.</p>
+  </div>
+
+  <div class="settings-layout">
+
+    <!-- ── Left: Settings form ── -->
+    <div class="settings-main">
+
+      <!-- Port & Debug card -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-label">01</span>
+          <h2 class="card-title">Server Settings</h2>
+        </div>
+
+        <form method="POST" action="{{ url_for('settings_save') }}" class="settings-form">
+
+          <!-- Port -->
+          <div class="setting-row">
+            <div class="setting-info">
+              <div class="setting-name">Listening Port</div>
+              <div class="setting-desc">The TCP port the web server binds to. Requires a restart to take effect.</div>
+            </div>
+            <div class="setting-control">
+              <div class="port-input-wrap">
+                <input
+                  type="number" name="port" id="portInput"
+                  class="form-input setting-input"
+                  value="{{ cfg.get('PORT', running_port) }}"
+                  min="1" max="65535" required
+                />
+                {% set cfg_port = cfg.get('PORT', running_port | string) | int %}
+                {% if cfg_port != running_port %}
+                <span class="port-mismatch-badge">
+                  ⚠ Running on {{ running_port }}
+                </span>
+                {% else %}
+                <span class="port-live-badge">
+                  ● Live on {{ running_port }}
+                </span>
+                {% endif %}
+              </div>
+              <div class="setting-hint">Valid range: 1 – 65535 &nbsp;·&nbsp; Common: 5000, 8000, 8080</div>
+            </div>
+          </div>
+
+          <div class="setting-divider"></div>
+
+          <!-- Debug mode -->
+          <div class="setting-row">
+            <div class="setting-info">
+              <div class="setting-name">Debug Mode</div>
+              <div class="setting-desc">Enables Flask auto-reload and detailed error pages. <strong>Disable in production.</strong></div>
+            </div>
+            <div class="setting-control">
+              <label class="toggle-label">
+                <input
+                  type="checkbox" name="flask_debug" id="debugToggle"
+                  class="toggle-input"
+                  {% if cfg.get('FLASK_DEBUG', 'false') == 'true' %}checked{% endif %}
+                />
+                <span class="toggle-track">
+                  <span class="toggle-thumb"></span>
+                </span>
+                <span class="toggle-text" id="debugLabel">
+                  {{ 'Enabled' if cfg.get('FLASK_DEBUG', 'false') == 'true' else 'Disabled' }}
+                </span>
+              </label>
+            </div>
+          </div>
+
+          <div class="settings-form-footer">
+            <button type="submit" class="btn btn--primary">Save Settings</button>
+            <span class="settings-note">⚠ Port changes require a service restart</span>
+          </div>
+
+        </form>
+      </div>
+
+      <!-- Restart instructions card -->
+      <div class="card card--info" style="margin-top:1rem">
+        <div class="card-header">
+          <span class="card-label">⟳</span>
+          <h2 class="card-title">Applying Port Changes</h2>
+        </div>
+        <div class="restart-steps">
+
+          <div class="restart-method">
+            <div class="restart-method-label">systemd service</div>
+            <pre class="code-block">sudo systemctl restart vmware-inventory
+sudo systemctl status vmware-inventory</pre>
+          </div>
+
+          <div class="restart-method">
+            <div class="restart-method-label">Command-line override (one-off)</div>
+            <pre class="code-block">python3 app.py --port 8080
+python3 app.py --port 8080 --debug</pre>
+          </div>
+
+          <div class="restart-method">
+            <div class="restart-method-label">.env file location</div>
+            <pre class="code-block">{{ env_file }}</pre>
+          </div>
+
+        </div>
+      </div>
+
+    </div><!-- /.settings-main -->
+
+    <!-- ── Right: Status panel ── -->
+    <div class="settings-sidebar">
+
+      <div class="card">
+        <div class="card-header">
+          <span class="card-label">◈</span>
+          <h2 class="card-title">Running State</h2>
+        </div>
+        <div class="status-grid">
+
+          <div class="status-kv">
+            <span class="status-k">Active Port</span>
+            <span class="status-v accent">{{ running_port }}</span>
+          </div>
+
+          <div class="status-kv">
+            <span class="status-k">Configured Port</span>
+            <span class="status-v">{{ cfg.get('PORT', running_port) }}</span>
+          </div>
+
+          <div class="status-kv">
+            <span class="status-k">Debug Mode</span>
+            {% if cfg.get('FLASK_DEBUG', 'false') == 'true' %}
+              <span class="status-v" style="color:var(--yellow)">Enabled</span>
+            {% else %}
+              <span class="status-v" style="color:var(--green)">Disabled</span>
+            {% endif %}
+          </div>
+
+          <div class="status-kv">
+            <span class="status-k">Bind Address</span>
+            <span class="status-v">0.0.0.0</span>
+          </div>
+
+          {% set cfg_port = cfg.get('PORT', running_port | string) | int %}
+          {% if cfg_port != running_port %}
+          <div class="status-kv status-kv--warn">
+            <span class="status-k">⚠ Restart needed</span>
+            <span class="status-v" style="color:var(--yellow)">Port mismatch</span>
+          </div>
+          {% else %}
+          <div class="status-kv status-kv--ok">
+            <span class="status-k">✓ In sync</span>
+            <span class="status-v" style="color:var(--green)">No restart needed</span>
+          </div>
+          {% endif %}
+
+        </div>
+      </div>
+
+      <div class="card card--info" style="margin-top:1rem">
+        <div class="card-header">
+          <span class="card-label">ℹ</span>
+          <h2 class="card-title">What is managed here</h2>
+        </div>
+        <ul class="info-list">
+          <li><span class="dot dot--green"></span>Listening port</li>
+          <li><span class="dot dot--green"></span>Debug mode flag</li>
+          <li><span class="dot dot--yellow"></span>Secrets (FLASK_SECRET, ENCRYPTION_KEY) — edit .env manually</li>
+          <li><span class="dot dot--yellow"></span>DATABASE_URL — edit .env manually</li>
+        </ul>
+      </div>
+
+    </div><!-- /.settings-sidebar -->
+
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // Live debug label update
+  const toggle    = document.getElementById('debugToggle');
+  const label     = document.getElementById('debugLabel');
+  const portInput = document.getElementById('portInput');
+
+  toggle.addEventListener('change', () => {
+    label.textContent = toggle.checked ? 'Enabled' : 'Disabled';
+  });
+
+  // Highlight port input when changed
+  const originalPort = portInput.value;
+  portInput.addEventListener('input', () => {
+    portInput.classList.toggle('input--changed', portInput.value !== originalPort);
+  });
+</script>
+{% endblock %}

@@ -16,10 +16,16 @@ from flask import (
     url_for, flash, Response, session,
 )
 
+from dotenv import load_dotenv
+load_dotenv()
+
 import vmware_client
 import data_processor
 import cache as cache_store
 import database
+import credential_store
+import scheduler
+import config_store
 
 # ---------------------------------------------------------------------------
 # Logging — never log passwords
@@ -42,6 +48,7 @@ def create_app() -> Flask:
     app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
     database.init_app(os.environ.get("DATABASE_URL"))
+    scheduler.init()
 
     # -----------------------------------------------------------------------
     # Routes
@@ -174,6 +181,137 @@ def create_app() -> Flask:
         flash("Cache cleared.", "info")
         return redirect(url_for("index"))
 
+    # -----------------------------------------------------------------------
+    # Credentials & Scheduler routes
+    # -----------------------------------------------------------------------
+
+    @app.route("/credentials", methods=["GET"])
+    def credentials():
+        creds        = credential_store.load_all()
+        running      = scheduler.active_hosts()
+        next_runs    = {c["host"]: scheduler.format_next_run(c["host"]) for c in creds}
+        return render_template(
+            "credentials.html",
+            credentials=creds,
+            running_hosts=running,
+            scheduler_jobs=next_runs,
+        )
+
+    @app.route("/credentials/add", methods=["POST"])
+    def cred_add():
+        host     = request.form.get("host", "").strip()
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+        port     = int(request.form.get("port", 443) or 443)
+        verify   = request.form.get("verify_ssl") == "on"
+        interval = max(5, int(request.form.get("interval_minutes", 60) or 60))
+
+        if not host or not username or not password:
+            flash("Host, username, and password are required.", "error")
+            return redirect(url_for("credentials"))
+
+        credential_store.save(host, username, password, port, verify, interval)
+        scheduler.upsert(host, interval, enabled=True)
+        flash(f"Credentials saved for {host}. Discovery scheduled every {interval} minutes.", "success")
+        return redirect(url_for("credentials"))
+
+    @app.route("/credentials/<path:host>/edit", methods=["POST"])
+    def cred_edit(host):
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+        port     = int(request.form.get("port", 443) or 443)
+        verify   = request.form.get("verify_ssl") == "on"
+        interval = max(5, int(request.form.get("interval_minutes", 60) or 60))
+
+        if not username:
+            flash("Username is required.", "error")
+            return redirect(url_for("credentials"))
+
+        if not password:
+            existing = credential_store.load(host)
+            if not existing:
+                flash(f"Host {host} not found.", "error")
+                return redirect(url_for("credentials"))
+            password = existing["password"]
+
+        credential_store.save(host, username, password, port, verify, interval)
+        enabled = credential_store.load(host).get("enabled", True)
+        scheduler.upsert(host, interval, enabled=enabled)
+        flash(f"Credentials updated for {host}.", "success")
+        return redirect(url_for("credentials"))
+
+    @app.route("/credentials/<path:host>/delete", methods=["POST"])
+    def cred_delete(host):
+        credential_store.delete(host)
+        scheduler.remove(host)
+        flash(f"Credentials for {host} deleted.", "info")
+        return redirect(url_for("credentials"))
+
+    @app.route("/credentials/<path:host>/toggle", methods=["POST"])
+    def cred_toggle(host):
+        enabled = credential_store.toggle(host)
+        cred    = credential_store.load_all()
+        entry   = next((c for c in cred if c["host"] == host), {})
+        interval = entry.get("interval_minutes", 60)
+        scheduler.upsert(host, interval, enabled=enabled)
+        state = "enabled" if enabled else "disabled"
+        flash(f"Discovery for {host} {state}.", "info")
+        return redirect(url_for("credentials"))
+
+    @app.route("/credentials/<path:host>/run", methods=["POST"])
+    def cred_run(host):
+        if host in scheduler.active_hosts():
+            flash(f"Discovery for {host} is already running.", "warning")
+            return redirect(url_for("credentials"))
+        scheduler.run_now(host)
+        flash(f"Discovery triggered for {host}. Results will appear when complete.", "success")
+        return redirect(url_for("credentials"))
+
+    # -----------------------------------------------------------------------
+    # Settings routes
+    # -----------------------------------------------------------------------
+
+    @app.route("/settings", methods=["GET"])
+    def settings():
+        cfg     = config_store.load()
+        running = int(os.environ.get("PORT", 5000))
+        return render_template("settings.html", cfg=cfg, running_port=running,
+                               env_file=config_store.env_file_path())
+
+    @app.route("/settings/save", methods=["POST"])
+    def settings_save():
+        port_raw  = request.form.get("port", "").strip()
+        debug_raw = request.form.get("flask_debug") == "on"
+
+        # Validate port
+        try:
+            port_int = int(port_raw)
+            if not (1 <= port_int <= 65535):
+                raise ValueError
+        except ValueError:
+            flash("Port must be an integer between 1 and 65535.", "error")
+            return redirect(url_for("settings"))
+
+        updates = {
+            "PORT":        str(port_int),
+            "FLASK_DEBUG": "true" if debug_raw else "false",
+        }
+        if config_store.save(updates):
+            running = int(os.environ.get("PORT", 5000))
+            if port_int != running:
+                flash(
+                    f"Port changed to {port_int}. "
+                    "Restart the service to apply: "
+                    "sudo systemctl restart vmware-inventory",
+                    "warning",
+                )
+            else:
+                flash("Settings saved.", "success")
+        else:
+            flash("Failed to write settings — check file permissions on .env.", "error")
+
+        return redirect(url_for("settings"))
+
     return app
 
 
@@ -183,7 +321,19 @@ def create_app() -> Flask:
 app = create_app()
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    debug = os.environ.get("FLASK_DEBUG", "false").lower() == "true"
-    logger.info("Starting VMware Inventory app on port %d (debug=%s)", port, debug)
-    app.run(host="0.0.0.0", port=port, debug=debug)
+    import argparse
+    parser = argparse.ArgumentParser(description="VMware Inventory Tool")
+    parser.add_argument("--port", type=int, default=None,
+                        help="Port to listen on (overrides PORT env var, default 5000)")
+    parser.add_argument("--host", dest="bind_host", default="0.0.0.0",
+                        help="Bind address (default 0.0.0.0)")
+    parser.add_argument("--debug", action="store_true", default=None,
+                        help="Enable debug mode (overrides FLASK_DEBUG env var)")
+    args = parser.parse_args()
+
+    port  = args.port  or int(os.environ.get("PORT", 5000))
+    debug = args.debug if args.debug is not None \
+            else os.environ.get("FLASK_DEBUG", "false").lower() == "true"
+
+    logger.info("Starting VMware Inventory app on %s:%d (debug=%s)", args.bind_host, port, debug)
+    app.run(host=args.bind_host, port=port, debug=debug)
