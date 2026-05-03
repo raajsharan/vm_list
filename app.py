@@ -413,14 +413,11 @@ def create_app() -> Flask:
             if isinstance(macs, str):
                 macs = [m.strip() for m in macs.split("|") if m.strip()]
 
-            matched_row = None
-            matched_mac = None
+            all_matches = []
             for mac in macs:
                 norm = mac_lookup_store.normalize_mac(mac)
                 if norm and norm in index:
-                    matched_row = index[norm]
-                    matched_mac = mac
-                    break
+                    all_matches.append((mac, index[norm]))
 
             display = data_processor.normalise_for_display([vm])[0]
             rows.append({
@@ -432,11 +429,10 @@ def create_app() -> Flask:
                 "OS Version":     display["os_version"],
                 "VM IPs":         display["ip_addresses"],
                 "MAC Addresses":  display["mac_addresses"],
-                "Matched MAC":    matched_mac or "",
-                "Mapped IP":      matched_row["ip_address"]     if matched_row else "",
-                "LAN Segment":    matched_row["lan_segment"]    if matched_row else "",
-                "VLAN Group":     matched_row["vlan_group"]     if matched_row else "",
-                "Data Retrieved": matched_row["data_retrieved"] if matched_row else "",
+                "Matched MACs":   " | ".join(m for m, _ in all_matches),
+                "Mapped IPs":     " | ".join(r["ip_address"]     for _, r in all_matches if r["ip_address"]),
+                "VLAN Group":     " | ".join(dict.fromkeys(r["vlan_group"]     for _, r in all_matches if r["vlan_group"])),
+                "Data Retrieved": " | ".join(dict.fromkeys(r["data_retrieved"] for _, r in all_matches if r["data_retrieved"])),
                 "Power State":    display["power_state"],
                 "Source Host":    display.get("source_host", ""),
             })
@@ -508,22 +504,19 @@ def create_app() -> Flask:
             if isinstance(macs, str):
                 macs = [m.strip() for m in macs.split("|") if m.strip()]
 
-            matched_row = None
-            matched_mac = None
+            all_matches = []
             for mac in macs:
                 norm = mac_lookup_store.normalize_mac(mac)
                 if norm and norm in index:
-                    matched_row = index[norm]
-                    matched_mac = mac
-                    break
+                    all_matches.append((mac, index[norm]))
 
             display = data_processor.normalise_for_display([vm])[0]
-            display["matched_mac"]    = matched_mac or ""
-            display["mapped_ip"]      = matched_row["ip_address"]     if matched_row else ""
-            display["lan_segment"]    = matched_row["lan_segment"]    if matched_row else ""
-            display["vlan_group"]     = matched_row["vlan_group"]     if matched_row else ""
-            display["data_retrieved"] = matched_row["data_retrieved"] if matched_row else ""
-            display["is_matched"]     = matched_row is not None
+            # pipe-separated, no spaces around pipe — used for set-membership check in template
+            display["matched_macs_pipe"] = "|".join(m for m, _ in all_matches)
+            display["mapped_ips"]        = " | ".join(r["ip_address"]     for _, r in all_matches if r["ip_address"])
+            display["vlan_groups"]       = " | ".join(dict.fromkeys(r["vlan_group"]     for _, r in all_matches if r["vlan_group"]))
+            display["data_retrieved"]    = " | ".join(dict.fromkeys(r["data_retrieved"] for _, r in all_matches if r["data_retrieved"]))
+            display["is_matched"]        = bool(all_matches)
             results.append(display)
 
         matched_count   = sum(1 for r in results if r["is_matched"])

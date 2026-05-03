@@ -12,7 +12,7 @@
         MAC Address <span class="accent">IP Lookup</span>
       </h1>
       <p class="hero-sub" style="margin-top:.4rem">
-        VM MAC addresses matched against the uploaded IP mapping file.
+        All VM MAC addresses matched against the uploaded IP mapping file.
         {% if meta.get('filename') %}
           Source: <code>{{ meta.filename }}</code>
           &nbsp;·&nbsp; uploaded {{ meta.get('uploaded_at', '')[:10] }}
@@ -35,11 +35,11 @@
       <span class="stat-key">Total VMs</span>
     </div>
     <div class="stat">
-      <span class="stat-val" style="color:var(--green)" id="matchedStat">{{ matched }}</span>
+      <span class="stat-val" style="color:var(--green)">{{ matched }}</span>
       <span class="stat-key">Matched</span>
     </div>
     <div class="stat">
-      <span class="stat-val" style="color:var(--yellow)" id="unmatchedStat">{{ unmatched }}</span>
+      <span class="stat-val" style="color:var(--yellow)">{{ unmatched }}</span>
       <span class="stat-key">Unmatched</span>
     </div>
     <div class="stat">
@@ -102,15 +102,15 @@
           <th class="sortable" data-col="4">OS Type <span class="sort-arrow">↕</span></th>
           <th class="sortable" data-col="5">VM IPs <span class="sort-arrow">↕</span></th>
           <th class="sortable" data-col="6">MAC Address(es) <span class="sort-arrow">↕</span></th>
-          <th class="sortable col-highlight" data-col="7">Mapped IP <span class="sort-arrow">↕</span></th>
-          <th class="sortable col-highlight" data-col="8">LAN Segment <span class="sort-arrow">↕</span></th>
-          <th class="sortable col-highlight" data-col="9">VLAN Group <span class="sort-arrow">↕</span></th>
-          <th class="sortable col-highlight" data-col="10">Data Retrieved <span class="sort-arrow">↕</span></th>
-          <th class="sortable" data-col="11">Power State <span class="sort-arrow">↕</span></th>
+          <th class="sortable col-highlight" data-col="7">Mapped IP(s) <span class="sort-arrow">↕</span></th>
+          <th class="sortable col-highlight" data-col="8">VLAN Group <span class="sort-arrow">↕</span></th>
+          <th class="sortable col-highlight" data-col="9">Data Retrieved <span class="sort-arrow">↕</span></th>
+          <th class="sortable" data-col="10">Power State <span class="sort-arrow">↕</span></th>
         </tr>
       </thead>
       <tbody id="mlBody">
         {% for vm in results %}
+        {% set matched_set = vm.matched_macs_pipe.split('|') if vm.matched_macs_pipe else [] %}
         <tr class="vm-row {% if vm.is_matched %}ml-matched{% else %}ml-unmatched{% endif %}"
             data-power="{{ vm.power_state }}"
             data-match="{{ 'matched' if vm.is_matched else 'unmatched' }}">
@@ -131,25 +131,24 @@
           <td class="mac-cell">
             {% if vm.mac_addresses != 'Not Available' %}
               {% for mac in vm.mac_addresses.split(' | ') %}
-                <span class="mac-tag {% if vm.matched_mac and mac == vm.matched_mac %}mac-tag--matched{% endif %}">{{ mac }}</span>
+                <span class="mac-tag {% if mac in matched_set %}mac-tag--matched{% endif %}">{{ mac }}</span>
               {% endfor %}
             {% else %}
               <span class="na">Not Available</span>
             {% endif %}
           </td>
-          <!-- Mapped columns (highlighted) -->
-          <td class="col-highlight">
-            {% if vm.mapped_ip %}
-              <span class="mapped-ip-tag">{{ vm.mapped_ip }}</span>
+          <!-- Mapped IPs — all matches shown as tags -->
+          <td class="col-highlight ip-cell">
+            {% if vm.mapped_ips %}
+              {% for ip in vm.mapped_ips.split(' | ') %}
+                <span class="mapped-ip-tag">{{ ip }}</span>
+              {% endfor %}
             {% else %}
               <span class="ml-no-match">—</span>
             {% endif %}
           </td>
-          <td class="col-highlight {% if not vm.lan_segment %}na{% endif %}">
-            {{ vm.lan_segment or '—' }}
-          </td>
-          <td class="col-highlight {% if not vm.vlan_group %}na{% endif %}">
-            {{ vm.vlan_group or '—' }}
+          <td class="col-highlight {% if not vm.vlan_groups %}na{% endif %}">
+            {{ vm.vlan_groups or '—' }}
           </td>
           <td class="col-highlight {% if not vm.data_retrieved %}na{% endif %}">
             {{ vm.data_retrieved or '—' }}
@@ -190,10 +189,10 @@
     let visible = 0;
 
     allRows.forEach(row => {
-      const text   = row.textContent.toLowerCase();
-      const show   = (!q || text.includes(q))
-                  && (!match || row.dataset.match === match)
-                  && (!power || row.dataset.power === power);
+      const text = row.textContent.toLowerCase();
+      const show = (!q || text.includes(q))
+                && (!match || row.dataset.match === match)
+                && (!power || row.dataset.power === power);
       row.style.display = show ? '' : 'none';
       if (show) {
         visible++;
