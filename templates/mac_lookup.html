@@ -1,0 +1,241 @@
+{% extends "base.html" %}
+{% block title %}MAC Lookup — VMware Inventory{% endblock %}
+
+{% block content %}
+<div class="page-mac-lookup">
+
+  <!-- ── Page header ─────────────────────────────────────────── -->
+  <div class="inventory-header">
+    <div>
+      <div class="page-label">NETWORK CORRELATION</div>
+      <h1 class="page-title">
+        MAC Address <span class="accent">IP Lookup</span>
+      </h1>
+      <p class="hero-sub" style="margin-top:.4rem">
+        VM MAC addresses matched against the uploaded IP mapping file.
+        {% if meta.get('filename') %}
+          Source: <code>{{ meta.filename }}</code>
+          &nbsp;·&nbsp; uploaded {{ meta.get('uploaded_at', '')[:10] }}
+        {% else %}
+          No mapping file uploaded yet — go to
+          <a href="{{ url_for('settings') }}" class="accent">Settings</a> to upload one.
+        {% endif %}
+      </p>
+    </div>
+    <div class="inventory-actions">
+      <a href="{{ url_for('export_mac_csv') }}" class="btn btn--secondary">↓ Export CSV</a>
+      <a href="{{ url_for('settings') }}" class="btn btn--outline">⊕ Upload File</a>
+    </div>
+  </div>
+
+  <!-- ── Summary stats ───────────────────────────────────────── -->
+  <div class="stats-bar" style="grid-template-columns:repeat(4,1fr)">
+    <div class="stat">
+      <span class="stat-val">{{ total }}</span>
+      <span class="stat-key">Total VMs</span>
+    </div>
+    <div class="stat">
+      <span class="stat-val" style="color:var(--green)" id="matchedStat">{{ matched }}</span>
+      <span class="stat-key">Matched</span>
+    </div>
+    <div class="stat">
+      <span class="stat-val" style="color:var(--yellow)" id="unmatchedStat">{{ unmatched }}</span>
+      <span class="stat-key">Unmatched</span>
+    </div>
+    <div class="stat">
+      <span class="stat-val">{{ meta.get('row_count', '—') }}</span>
+      <span class="stat-key">Mapping Entries</span>
+    </div>
+  </div>
+
+  {% if not has_mapping %}
+  <div class="empty-state" style="margin-top:2rem">
+    <div class="empty-icon">◈</div>
+    <p>No MAC mapping file has been uploaded yet.</p>
+    <a href="{{ url_for('settings') }}" class="btn btn--primary" style="margin-top:1rem">
+      Upload Mapping File
+    </a>
+  </div>
+  {% elif not results %}
+  <div class="empty-state" style="margin-top:2rem">
+    <div class="empty-icon">◈</div>
+    <p>No VM data available. Run a discovery first.</p>
+    <a href="{{ url_for('index') }}" class="btn btn--primary" style="margin-top:1rem">
+      Run Discovery
+    </a>
+  </div>
+  {% else %}
+
+  <!-- ── Filter bar ──────────────────────────────────────────── -->
+  <div class="filter-bar">
+    <div class="search-wrapper">
+      <span class="search-icon">⌕</span>
+      <input type="text" id="searchInput" class="search-input"
+             placeholder="Filter by VM name, IP, MAC, hostname…"
+             autocomplete="off" spellcheck="false" />
+      <button class="search-clear" id="searchClear" style="display:none;">✕</button>
+    </div>
+    <div class="filter-controls">
+      <select id="matchFilter" class="filter-select">
+        <option value="">All VMs</option>
+        <option value="matched">Matched only</option>
+        <option value="unmatched">Unmatched only</option>
+      </select>
+      <select id="powerFilter" class="filter-select">
+        <option value="">All power states</option>
+        <option value="poweredOn">Powered On</option>
+        <option value="poweredOff">Powered Off</option>
+        <option value="suspended">Suspended</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- ── VM table ────────────────────────────────────────────── -->
+  <div class="table-wrapper ml-table-wrap">
+    <table class="vm-table" id="mlTable">
+      <thead>
+        <tr>
+          <th class="sortable" data-col="0">#</th>
+          <th class="sortable" data-col="1">VM Name <span class="sort-arrow">↕</span></th>
+          <th class="sortable" data-col="2">Hostname <span class="sort-arrow">↕</span></th>
+          <th class="sortable" data-col="3">ESXi Host <span class="sort-arrow">↕</span></th>
+          <th class="sortable" data-col="4">OS Type <span class="sort-arrow">↕</span></th>
+          <th class="sortable" data-col="5">VM IPs <span class="sort-arrow">↕</span></th>
+          <th class="sortable" data-col="6">MAC Address(es) <span class="sort-arrow">↕</span></th>
+          <th class="sortable col-highlight" data-col="7">Mapped IP <span class="sort-arrow">↕</span></th>
+          <th class="sortable col-highlight" data-col="8">LAN Segment <span class="sort-arrow">↕</span></th>
+          <th class="sortable col-highlight" data-col="9">VLAN Group <span class="sort-arrow">↕</span></th>
+          <th class="sortable col-highlight" data-col="10">Data Retrieved <span class="sort-arrow">↕</span></th>
+          <th class="sortable" data-col="11">Power State <span class="sort-arrow">↕</span></th>
+        </tr>
+      </thead>
+      <tbody id="mlBody">
+        {% for vm in results %}
+        <tr class="vm-row {% if vm.is_matched %}ml-matched{% else %}ml-unmatched{% endif %}"
+            data-power="{{ vm.power_state }}"
+            data-match="{{ 'matched' if vm.is_matched else 'unmatched' }}">
+          <td class="row-num">{{ loop.index }}</td>
+          <td class="vm-name"><span class="name-text">{{ vm.name }}</span></td>
+          <td class="{% if vm.hostname == 'Not Available' %}na{% endif %}">{{ vm.hostname }}</td>
+          <td>{{ vm.esxi_host_name }}</td>
+          <td class="{% if vm.os_type == 'Not Available' %}na{% endif %}">{{ vm.os_type }}</td>
+          <td class="ip-cell">
+            {% if vm.ip_addresses != 'Not Available' %}
+              {% for ip in vm.ip_addresses.split(' | ') %}
+                <span class="ip-tag">{{ ip }}</span>
+              {% endfor %}
+            {% else %}
+              <span class="na">Not Available</span>
+            {% endif %}
+          </td>
+          <td class="mac-cell">
+            {% if vm.mac_addresses != 'Not Available' %}
+              {% for mac in vm.mac_addresses.split(' | ') %}
+                <span class="mac-tag {% if vm.matched_mac and mac == vm.matched_mac %}mac-tag--matched{% endif %}">{{ mac }}</span>
+              {% endfor %}
+            {% else %}
+              <span class="na">Not Available</span>
+            {% endif %}
+          </td>
+          <!-- Mapped columns (highlighted) -->
+          <td class="col-highlight">
+            {% if vm.mapped_ip %}
+              <span class="mapped-ip-tag">{{ vm.mapped_ip }}</span>
+            {% else %}
+              <span class="ml-no-match">—</span>
+            {% endif %}
+          </td>
+          <td class="col-highlight {% if not vm.lan_segment %}na{% endif %}">
+            {{ vm.lan_segment or '—' }}
+          </td>
+          <td class="col-highlight {% if not vm.vlan_group %}na{% endif %}">
+            {{ vm.vlan_group or '—' }}
+          </td>
+          <td class="col-highlight {% if not vm.data_retrieved %}na{% endif %}">
+            {{ vm.data_retrieved or '—' }}
+          </td>
+          <td>
+            <span class="power-badge power-badge--{{ vm.power_state }}">{{ vm.power_state }}</span>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <div class="no-results" id="noResults" style="display:none;">
+      No VMs match your filter criteria.
+    </div>
+  </div>
+
+  {% endif %}
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const tbody       = document.getElementById('mlBody');
+  if (!tbody) return;
+  const allRows     = Array.from(tbody.querySelectorAll('tr.vm-row'));
+  const searchInput = document.getElementById('searchInput');
+  const searchClear = document.getElementById('searchClear');
+  const matchFilter = document.getElementById('matchFilter');
+  const powerFilter = document.getElementById('powerFilter');
+  const noResults   = document.getElementById('noResults');
+
+  function applyFilter() {
+    const q     = searchInput.value.toLowerCase().trim();
+    const match = matchFilter.value;
+    const power = powerFilter.value;
+    let visible = 0;
+
+    allRows.forEach(row => {
+      const text   = row.textContent.toLowerCase();
+      const show   = (!q || text.includes(q))
+                  && (!match || row.dataset.match === match)
+                  && (!power || row.dataset.power === power);
+      row.style.display = show ? '' : 'none';
+      if (show) {
+        visible++;
+        row.querySelector('.row-num').textContent = visible;
+      }
+    });
+
+    noResults.style.display   = visible === 0 ? 'block' : 'none';
+    searchClear.style.display = q ? 'inline-flex' : 'none';
+  }
+
+  searchInput.addEventListener('input', applyFilter);
+  matchFilter.addEventListener('change', applyFilter);
+  powerFilter.addEventListener('change', applyFilter);
+  searchClear.addEventListener('click', () => {
+    searchInput.value = '';
+    applyFilter();
+    searchInput.focus();
+  });
+
+  // ── Sorting ──
+  let sortCol = -1, sortAsc = true;
+  document.querySelectorAll('th.sortable').forEach(th => {
+    th.addEventListener('click', () => {
+      const col = parseInt(th.dataset.col);
+      if (sortCol === col) { sortAsc = !sortAsc; }
+      else { sortCol = col; sortAsc = true; }
+      document.querySelectorAll('th.sortable').forEach(t =>
+        t.classList.remove('sorted-asc', 'sorted-desc'));
+      th.classList.add(sortAsc ? 'sorted-asc' : 'sorted-desc');
+      const rows = Array.from(tbody.querySelectorAll('tr.vm-row'));
+      rows.sort((a, b) => {
+        const av = a.cells[col]?.textContent.trim() || '';
+        const bv = b.cells[col]?.textContent.trim() || '';
+        return sortAsc
+          ? av.localeCompare(bv, undefined, {numeric: true})
+          : bv.localeCompare(av, undefined, {numeric: true});
+      });
+      rows.forEach(r => tbody.appendChild(r));
+      applyFilter();
+    });
+  });
+})();
+</script>
+{% endblock %}

@@ -26,6 +26,7 @@ import database
 import credential_store
 import scheduler
 import config_store
+import mac_lookup as mac_lookup_store
 
 # ---------------------------------------------------------------------------
 # Logging — never log passwords
@@ -352,10 +353,12 @@ def create_app() -> Flask:
 
     @app.route("/settings", methods=["GET"])
     def settings():
-        cfg     = config_store.load()
-        running = int(os.environ.get("PORT", 5000))
+        cfg      = config_store.load()
+        running  = int(os.environ.get("PORT", 5000))
+        mac_meta = mac_lookup_store.load_meta()
         return render_template("settings.html", cfg=cfg, running_port=running,
-                               env_file=config_store.env_file_path())
+                               env_file=config_store.env_file_path(),
+                               mac_meta=mac_meta)
 
     @app.route("/settings/save", methods=["POST"])
     def settings_save():
@@ -390,6 +393,151 @@ def create_app() -> Flask:
             flash("Failed to write settings — check file permissions on .env.", "error")
 
         return redirect(url_for("settings"))
+
+    @app.route("/export/mac-lookup/csv", methods=["GET"])
+    def export_mac_csv():
+        mapping = mac_lookup_store.load_mapping()
+        index   = mac_lookup_store.build_index(mapping)
+
+        raw_vms = database.load_latest_inventory_all_hosts()
+        if not raw_vms:
+            raw_vms = cache_store.load_all_hosts()
+
+        if not raw_vms:
+            flash("No VM data to export.", "warning")
+            return redirect(url_for("mac_lookup"))
+
+        rows = []
+        for vm in raw_vms:
+            macs = vm.get("macs", [])
+            if isinstance(macs, str):
+                macs = [m.strip() for m in macs.split("|") if m.strip()]
+
+            matched_row = None
+            matched_mac = None
+            for mac in macs:
+                norm = mac_lookup_store.normalize_mac(mac)
+                if norm and norm in index:
+                    matched_row = index[norm]
+                    matched_mac = mac
+                    break
+
+            display = data_processor.normalise_for_display([vm])[0]
+            rows.append({
+                "VM Name":        display["name"],
+                "Hostname":       display["hostname"],
+                "ESXi Host":      display["esxi_host_name"],
+                "ESXi Host IP":   display["esxi_host_ip"],
+                "OS Type":        display["os_type"],
+                "OS Version":     display["os_version"],
+                "VM IPs":         display["ip_addresses"],
+                "MAC Addresses":  display["mac_addresses"],
+                "Matched MAC":    matched_mac or "",
+                "Mapped IP":      matched_row["ip_address"]     if matched_row else "",
+                "LAN Segment":    matched_row["lan_segment"]    if matched_row else "",
+                "VLAN Group":     matched_row["vlan_group"]     if matched_row else "",
+                "Data Retrieved": matched_row["data_retrieved"] if matched_row else "",
+                "Power State":    display["power_state"],
+                "Source Host":    display.get("source_host", ""),
+            })
+
+        output = io.StringIO()
+        writer = csv.DictWriter(output, fieldnames=rows[0].keys())
+        writer.writeheader()
+        writer.writerows(rows)
+        return Response(
+            output.getvalue(),
+            mimetype="text/csv",
+            headers={"Content-Disposition": "attachment; filename=mac_lookup.csv"},
+        )
+
+    @app.route("/settings/upload-mac", methods=["POST"])
+    def upload_mac_file():
+        f = request.files.get("mac_file")
+        if not f or not f.filename:
+            flash("No file selected.", "error")
+            return redirect(url_for("settings"))
+
+        ext = os.path.splitext(f.filename)[1].lower()
+        if ext not in (".xlsx", ".xls", ".csv"):
+            flash("Unsupported file type. Please upload a .xlsx or .csv file.", "error")
+            return redirect(url_for("settings"))
+
+        try:
+            rows, meta = mac_lookup_store.parse_file(f)
+            if not rows:
+                flash("File parsed but no valid MAC address rows were found. "
+                      "Check that the file has 'MAC Address' and 'IP Address' columns.", "warning")
+                return redirect(url_for("settings"))
+            mac_lookup_store.save_mapping(rows, meta)
+            flash(
+                f"MAC mapping loaded: {len(rows)} entries from \"{meta['filename']}\". "
+                f"Columns detected — MAC: {meta['cols_detected']['mac']}, "
+                f"IP: {meta['cols_detected']['ip']}.",
+                "success",
+            )
+        except Exception as exc:
+            logger.exception("MAC file parse error")
+            flash(f"Failed to parse file: {exc}", "error")
+
+        return redirect(url_for("settings"))
+
+    @app.route("/settings/clear-mac", methods=["POST"])
+    def clear_mac_file():
+        mac_lookup_store.clear_mapping()
+        flash("MAC address mapping cleared.", "info")
+        return redirect(url_for("settings"))
+
+    # -----------------------------------------------------------------------
+    # MAC Address Lookup — compare VM MACs against uploaded IP mapping
+    # -----------------------------------------------------------------------
+
+    @app.route("/mac-lookup", methods=["GET"])
+    def mac_lookup():
+        mapping = mac_lookup_store.load_mapping()
+        meta    = mac_lookup_store.load_meta()
+        index   = mac_lookup_store.build_index(mapping)
+
+        raw_vms = database.load_latest_inventory_all_hosts()
+        if not raw_vms:
+            raw_vms = cache_store.load_all_hosts()
+
+        results = []
+        for vm in raw_vms:
+            macs = vm.get("macs", [])
+            if isinstance(macs, str):
+                macs = [m.strip() for m in macs.split("|") if m.strip()]
+
+            matched_row = None
+            matched_mac = None
+            for mac in macs:
+                norm = mac_lookup_store.normalize_mac(mac)
+                if norm and norm in index:
+                    matched_row = index[norm]
+                    matched_mac = mac
+                    break
+
+            display = data_processor.normalise_for_display([vm])[0]
+            display["matched_mac"]    = matched_mac or ""
+            display["mapped_ip"]      = matched_row["ip_address"]     if matched_row else ""
+            display["lan_segment"]    = matched_row["lan_segment"]    if matched_row else ""
+            display["vlan_group"]     = matched_row["vlan_group"]     if matched_row else ""
+            display["data_retrieved"] = matched_row["data_retrieved"] if matched_row else ""
+            display["is_matched"]     = matched_row is not None
+            results.append(display)
+
+        matched_count   = sum(1 for r in results if r["is_matched"])
+        unmatched_count = len(results) - matched_count
+
+        return render_template(
+            "mac_lookup.html",
+            results=results,
+            meta=meta,
+            total=len(results),
+            matched=matched_count,
+            unmatched=unmatched_count,
+            has_mapping=bool(mapping),
+        )
 
     return app
 

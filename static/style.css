@@ -1898,3 +1898,112 @@ code { font-family: var(--mono); font-size: 0.78rem; color: var(--accent); }
   font-weight: 600;
   pointer-events: none;
 }
+
+/* ── MAC Lookup page ─────────────────────────────────────────── */
+.page-mac-lookup { padding: 1.5rem 2rem; }
+
+/* Highlighted columns from the mapping file */
+th.col-highlight,
+td.col-highlight {
+  background: rgba(79, 163, 224, 0.04);
+  border-left: 1px solid var(--accent-dim);
+}
+th.col-highlight {
+  color: var(--accent);
+  border-top: 2px solid var(--accent-dim);
+}
+
+/* Matched row — subtle left bar */
+tr.ml-matched td:first-child {
+  border-left: 3px solid var(--green);
+}
+tr.ml-unmatched td:first-child {
+  border-left: 3px solid transparent;
+}
+
+/* Matched MAC tag */
+.mac-tag--matched {
+  background: var(--green-dim);
+  color: var(--green);
+  border-color: var(--green);
+}
+
+/* Mapped IP tag */
+.mapped-ip-tag {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: .72rem;
+  background: rgba(62, 207, 142, 0.12);
+  color: var(--green);
+  border: 1px solid rgba(62, 207, 142, 0.3);
+  border-radius: var(--radius);
+  padding: .15rem .45rem;
+  white-space: nowrap;
+}
+
+.ml-no-match {
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: .8rem;
+}
+
+/* ── MAC Upload (Settings page) ──────────────────────────────── */
+.mac-file-status {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: .75rem 1rem;
+  margin-bottom: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: .35rem;
+}
+.mfs-row { display: flex; gap: .75rem; align-items: baseline; }
+.mfs-key {
+  font-family: var(--mono);
+  font-size: .68rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  min-width: 110px;
+  flex-shrink: 0;
+}
+.mfs-val { font-size: .8rem; color: var(--text); }
+
+.mac-upload-form { margin-top: .75rem; }
+
+.mac-drop-zone {
+  border: 1.5px dashed var(--border-hi);
+  border-radius: var(--radius-lg);
+  padding: 1.5rem 2rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+  background: var(--bg);
+}
+.mac-drop-zone:hover,
+.mac-drop-zone.drag-over {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+.mac-drop-icon {
+  font-size: 1.5rem;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+.mac-drop-text { font-size: .85rem; color: var(--text-muted); }
+.mac-browse-link {
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.mac-upload-actions {
+  display: flex;
+  gap: .6rem;
+  margin-top: .75rem;
+  flex-wrap: wrap;
+  align-items: center;
+}

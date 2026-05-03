@@ -86,6 +86,83 @@
         </form>
       </div>
 
+      <!-- MAC Address Mapping File card -->
+      <div class="card" style="margin-top:1rem">
+        <div class="card-header">
+          <span class="card-label">02</span>
+          <h2 class="card-title">MAC Address → IP Mapping File</h2>
+        </div>
+        <p class="hero-sub" style="margin:.5rem 0 1rem">
+          Upload an Excel (.xlsx) or CSV file that maps MAC addresses to IP addresses,
+          LAN segments and VLAN groups. Used by the
+          <a href="{{ url_for('mac_lookup') }}" class="accent">MAC Lookup</a> page.
+        </p>
+
+        {% if mac_meta.get('filename') %}
+        <div class="mac-file-status">
+          <div class="mfs-row">
+            <span class="mfs-key">File</span>
+            <span class="mfs-val accent">{{ mac_meta.filename }}</span>
+          </div>
+          <div class="mfs-row">
+            <span class="mfs-key">Uploaded</span>
+            <span class="mfs-val">{{ mac_meta.get('uploaded_at', '')[:19] | replace('T',' ') }} UTC</span>
+          </div>
+          <div class="mfs-row">
+            <span class="mfs-key">Entries</span>
+            <span class="mfs-val" style="color:var(--green)">{{ mac_meta.get('row_count', 0) }} MAC records</span>
+          </div>
+          {% set cols = mac_meta.get('cols_detected', {}) %}
+          {% if cols.get('mac') %}
+          <div class="mfs-row">
+            <span class="mfs-key">Columns detected</span>
+            <span class="mfs-val">
+              MAC: <code>{{ cols.mac }}</code>
+              {% if cols.ip %}&nbsp;· IP: <code>{{ cols.ip }}</code>{% endif %}
+              {% if cols.lan %}&nbsp;· LAN: <code>{{ cols.lan }}</code>{% endif %}
+              {% if cols.vlan %}&nbsp;· VLAN: <code>{{ cols.vlan }}</code>{% endif %}
+              {% if cols.data %}&nbsp;· Retrieved: <code>{{ cols.data }}</code>{% endif %}
+            </span>
+          </div>
+          {% endif %}
+        </div>
+        {% endif %}
+
+        <form method="POST" action="{{ url_for('upload_mac_file') }}"
+              enctype="multipart/form-data" class="mac-upload-form">
+          <div class="mac-drop-zone" id="macDropZone">
+            <span class="mac-drop-icon">⊕</span>
+            <span class="mac-drop-text" id="macDropText">
+              Drop .xlsx / .csv here or <label for="macFileInput" class="mac-browse-link">browse</label>
+            </span>
+            <input type="file" name="mac_file" id="macFileInput"
+                   accept=".xlsx,.xls,.csv" style="display:none" />
+          </div>
+          <div class="mac-upload-actions">
+            <button type="submit" class="btn btn--primary" id="macUploadBtn" disabled>
+              ↑ Upload &amp; Parse
+            </button>
+            {% if mac_meta.get('filename') %}
+            <form method="POST" action="{{ url_for('clear_mac_file') }}" style="display:inline">
+              <button type="submit" class="btn btn--ghost"
+                      onclick="return confirm('Clear the MAC mapping file?')">
+                ✕ Clear Mapping
+              </button>
+            </form>
+            {% endif %}
+            <a href="{{ url_for('mac_lookup') }}" class="btn btn--outline">→ Open MAC Lookup</a>
+          </div>
+        </form>
+
+        <div class="card card--info" style="margin-top:.75rem;padding:.75rem 1rem">
+          <div class="restart-method-label" style="margin-bottom:.35rem">Expected column headers</div>
+          <pre class="code-block" style="font-size:.7rem">MAC Address | IP Address | LAN Segment | VLAN Group | Data Retrieved</pre>
+          <p class="setting-hint" style="margin-top:.4rem">
+            Headers are detected automatically (case-insensitive). Column order does not matter.
+          </p>
+        </div>
+      </div>
+
       <!-- Restart instructions card -->
       <div class="card card--info" style="margin-top:1rem">
         <div class="card-header">
@@ -188,6 +265,40 @@ python3 app.py --port 8080 --debug</pre>
 
 {% block scripts %}
 <script>
+  // ── MAC file picker / drop zone ──
+  const dropZone   = document.getElementById('macDropZone');
+  const fileInput  = document.getElementById('macFileInput');
+  const dropText   = document.getElementById('macDropText');
+  const uploadBtn  = document.getElementById('macUploadBtn');
+
+  if (dropZone && fileInput) {
+    dropZone.addEventListener('click', () => fileInput.click());
+
+    fileInput.addEventListener('change', () => {
+      const f = fileInput.files[0];
+      if (f) {
+        dropText.textContent = f.name;
+        uploadBtn.disabled = false;
+      }
+    });
+
+    ['dragenter','dragover'].forEach(e =>
+      dropZone.addEventListener(e, ev => { ev.preventDefault(); dropZone.classList.add('drag-over'); }));
+    ['dragleave','drop'].forEach(e =>
+      dropZone.addEventListener(e, ev => { ev.preventDefault(); dropZone.classList.remove('drag-over'); }));
+
+    dropZone.addEventListener('drop', ev => {
+      const f = ev.dataTransfer.files[0];
+      if (f) {
+        const dt = new DataTransfer();
+        dt.items.add(f);
+        fileInput.files = dt.files;
+        dropText.textContent = f.name;
+        uploadBtn.disabled = false;
+      }
+    });
+  }
+
   // Live debug label update
   const toggle    = document.getElementById('debugToggle');
   const label     = document.getElementById('debugLabel');
