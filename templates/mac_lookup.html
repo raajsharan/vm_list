@@ -120,10 +120,12 @@
           <td>{{ vm.esxi_host_name }}</td>
           <td class="{% if vm.os_type == 'Not Available' %}na{% endif %}">{{ vm.os_type }}</td>
           <td class="ip-cell">
-            {% if vm.ip_addresses != 'Not Available' %}
-              {% for ip in vm.ip_addresses.split(' | ') %}
-                <span class="ip-tag">{{ ip }}</span>
-              {% endfor %}
+            {% set ips = vm.ip_addresses.split(' | ') if vm.ip_addresses != 'Not Available' else [] %}
+            {% if ips %}
+              {% for ip in ips[:2] %}<span class="ip-tag">{{ ip }}</span>{% endfor %}
+              {% if ips | length > 2 %}
+                <span class="ip-more" data-ips="{{ ips[2:] | join('\n') }}">+{{ ips | length - 2 }} more</span>
+              {% endif %}
             {% else %}
               <span class="na">Not Available</span>
             {% endif %}
@@ -140,9 +142,11 @@
           <!-- Mapped IPs — all matches shown as tags -->
           <td class="col-highlight ip-cell">
             {% if vm.mapped_ips %}
-              {% for ip in vm.mapped_ips.split(' | ') %}
-                <span class="mapped-ip-tag">{{ ip }}</span>
-              {% endfor %}
+              {% set mips = vm.mapped_ips.split(' | ') %}
+              {% for ip in mips[:2] %}<span class="mapped-ip-tag">{{ ip }}</span>{% endfor %}
+              {% if mips | length > 2 %}
+                <span class="ip-more" data-ips="{{ mips[2:] | join('\n') }}">+{{ mips | length - 2 }} more</span>
+              {% endif %}
             {% else %}
               <span class="ml-no-match">—</span>
             {% endif %}

@@ -1899,6 +1899,55 @@ code { font-family: var(--mono); font-size: 0.78rem; color: var(--accent); }
   pointer-events: none;
 }
 
+/* ── IP overflow: "+N more" button & popup ───────────────────── */
+.ip-more {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: .65rem;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-dim);
+  border: 1px solid rgba(79, 163, 224, .3);
+  border-radius: var(--radius);
+  padding: .12rem .45rem;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  vertical-align: middle;
+  transition: background .12s;
+}
+.ip-more:hover { background: rgba(79, 163, 224, .2); }
+
+.ip-popup {
+  position: absolute;
+  z-index: 9999;
+  display: none;
+  background: var(--bg-card);
+  border: 1px solid var(--border-hi);
+  border-radius: var(--radius-lg);
+  padding: .6rem .85rem;
+  min-width: 160px;
+  max-width: 260px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, .55);
+}
+.ip-popup.open { display: block; }
+
+.ip-popup-title {
+  font-family: var(--mono);
+  font-size: .62rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  margin-bottom: .45rem;
+}
+
+.ip-popup .ip-tag {
+  display: block;
+  margin-bottom: .25rem;
+  font-size: .72rem;
+}
+.ip-popup .ip-tag:last-child { margin-bottom: 0; }
+
 /* ── MAC Lookup page ─────────────────────────────────────────── */
 .page-mac-lookup { padding: 1.5rem 2rem; }
 

@@ -105,10 +105,12 @@
           <td class="{% if vm.hostname == 'Not Available' %}na{% endif %}">{{ vm.hostname }}</td>
           <td class="{% if vm.esxi_host_ip == 'Not Available' %}na{% endif %}">{{ vm.esxi_host_ip }}</td>
           <td class="ip-cell">
-            {% if vm.ip_addresses != 'Not Available' %}
-              {% for ip in vm.ip_addresses.split(' | ') %}
-                <span class="ip-tag">{{ ip }}</span>
-              {% endfor %}
+            {% set ips = vm.ip_addresses.split(' | ') if vm.ip_addresses != 'Not Available' else [] %}
+            {% if ips %}
+              {% for ip in ips[:2] %}<span class="ip-tag">{{ ip }}</span>{% endfor %}
+              {% if ips | length > 2 %}
+                <span class="ip-more" data-ips="{{ ips[2:] | join('\n') }}">+{{ ips | length - 2 }} more</span>
+              {% endif %}
             {% else %}
               <span class="na">Not Available</span>
             {% endif %}

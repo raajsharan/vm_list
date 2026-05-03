@@ -78,5 +78,38 @@
   </footer>
 
   {% block scripts %}{% endblock %}
+
+  <!-- Global IP overflow popup -->
+  <div class="ip-popup" id="ipPopup" role="tooltip" aria-hidden="true"></div>
+  <script>
+  (function () {
+    const popup = document.getElementById('ipPopup');
+    document.addEventListener('click', function (e) {
+      const btn = e.target.closest('.ip-more');
+      if (btn) {
+        e.stopPropagation();
+        const ips = (btn.dataset.ips || '').split('\n').map(s => s.trim()).filter(Boolean);
+        popup.innerHTML =
+          '<div class="ip-popup-title">Additional IPs</div>' +
+          ips.map(ip => `<span class="ip-tag">${ip.replace(/</g,'&lt;')}</span>`).join('');
+        popup.classList.add('open');
+        const br = btn.getBoundingClientRect();
+        let top  = br.bottom + 6 + window.scrollY;
+        let left = br.left   + window.scrollX;
+        popup.style.top  = top  + 'px';
+        popup.style.left = left + 'px';
+        // keep inside viewport
+        const pr = popup.getBoundingClientRect();
+        if (pr.right  > window.innerWidth  - 8) popup.style.left = (window.innerWidth  - pr.width  - 8 + window.scrollX) + 'px';
+        if (pr.bottom > window.innerHeight - 8) popup.style.top  = (br.top - pr.height - 6 + window.scrollY) + 'px';
+      } else if (!e.target.closest('#ipPopup')) {
+        popup.classList.remove('open');
+      }
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') popup.classList.remove('open');
+    });
+  })();
+  </script>
 </body>
 </html>

@@ -6,10 +6,12 @@ Keeps list fields as pipe-separated strings for table rendering
 while preserving the original lists for JSON/CSV export.
 """
 
+import re
 from typing import Any
 
 
-_UNKNOWN = "Not Available"
+_UNKNOWN  = "Not Available"
+_IPV4_RE  = re.compile(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$")
 
 
 def _join(value: Any, sep: str = " | ") -> str:
@@ -18,6 +20,14 @@ def _join(value: Any, sep: str = " | ") -> str:
         cleaned = [str(v) for v in value if v and v != _UNKNOWN]
         return sep.join(cleaned) if cleaned else _UNKNOWN
     return str(value) if value else _UNKNOWN
+
+
+def _ipv4_only(ips: Any) -> Any:
+    """Filter a list of IPs to IPv4 addresses only. Falls back to original list if none match."""
+    if not isinstance(ips, list):
+        return ips
+    v4 = [ip for ip in ips if _IPV4_RE.match(str(ip).strip())]
+    return v4 if v4 else ips
 
 
 def normalise_for_display(records: list[dict]) -> list[dict]:
@@ -34,7 +44,7 @@ def normalise_for_display(records: list[dict]) -> list[dict]:
             "discovered_at":   rec.get("discovered_at", ""),
             "name":            rec.get("name", _UNKNOWN),
             "hostname":        rec.get("hostname", _UNKNOWN),
-            "ip_addresses":    _join(rec.get("ips", [_UNKNOWN])),
+            "ip_addresses":    _join(_ipv4_only(rec.get("ips", [_UNKNOWN]))),
             "esxi_host_name":  rec.get("esxi_host_name", _UNKNOWN),
             "esxi_host_ip":    rec.get("esxi_host_ip", _UNKNOWN),
             "os_type":         rec.get("os_type", _UNKNOWN),
