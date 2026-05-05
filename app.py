@@ -452,7 +452,6 @@ def create_app() -> Flask:
                 "MAC Addresses":  display["mac_addresses"],
                 "Matched MACs":   " | ".join(m for m, _ in all_matches),
                 "Mapped IPs":     " | ".join(r["ip_address"]     for _, r in all_matches if r["ip_address"]),
-                "VLAN Group":     " | ".join(dict.fromkeys(r["vlan_group"]     for _, r in all_matches if r["vlan_group"])),
                 "Data Retrieved": " | ".join(dict.fromkeys(r["data_retrieved"] for _, r in all_matches if r["data_retrieved"])),
                 "Power State":    display["power_state"],
                 "Source Host":    display.get("source_host", ""),
@@ -599,7 +598,6 @@ def create_app() -> Flask:
             # pipe-separated, no spaces around pipe — used for set-membership check in template
             display["matched_macs_pipe"] = "|".join(m for m, _ in all_matches)
             display["mapped_ips"]        = " | ".join(r["ip_address"]     for _, r in all_matches if r["ip_address"])
-            display["vlan_groups"]       = " | ".join(dict.fromkeys(r["vlan_group"]     for _, r in all_matches if r["vlan_group"]))
             display["data_retrieved"]    = " | ".join(dict.fromkeys(r["data_retrieved"] for _, r in all_matches if r["data_retrieved"]))
             display["is_matched"]        = bool(all_matches)
             results.append(display)

@@ -2,7 +2,7 @@
 {% block title %}MAC Lookup — VMware Inventory{% endblock %}
 
 {% block content %}
-<div class="page-mac-lookup">
+<div class="page-mac-lookup page-mac-lookup--fullwidth">
 
   <!-- ── Page header ─────────────────────────────────────────── -->
   <div class="inventory-header">
@@ -103,9 +103,8 @@
           <th class="sortable" data-col="5">VM IPs <span class="sort-arrow">↕</span></th>
           <th class="sortable" data-col="6">MAC Address(es) <span class="sort-arrow">↕</span></th>
           <th class="sortable col-highlight" data-col="7">Mapped IP(s) <span class="sort-arrow">↕</span></th>
-          <th class="sortable col-highlight" data-col="8">VLAN Group <span class="sort-arrow">↕</span></th>
-          <th class="sortable col-highlight" data-col="9">Data Retrieved <span class="sort-arrow">↕</span></th>
-          <th class="sortable" data-col="10">Power State <span class="sort-arrow">↕</span></th>
+          <th class="sortable col-highlight" data-col="8">Data Retrieved <span class="sort-arrow">↕</span></th>
+          <th class="sortable" data-col="9">Power State <span class="sort-arrow">↕</span></th>
         </tr>
       </thead>
       <tbody id="mlBody">
@@ -150,9 +149,6 @@
             {% else %}
               <span class="ml-no-match">—</span>
             {% endif %}
-          </td>
-          <td class="col-highlight {% if not vm.vlan_groups %}na{% endif %}">
-            {{ vm.vlan_groups or '—' }}
           </td>
           <td class="col-highlight {% if not vm.data_retrieved %}na{% endif %}">
             {{ vm.data_retrieved or '—' }}
