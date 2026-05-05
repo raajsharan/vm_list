@@ -58,10 +58,13 @@ def _save_raw(data: dict) -> None:
 
 def save(host: str, username: str, password: str,
          port: int = 443, verify_ssl: bool = False,
-         interval_minutes: int = 60) -> None:
+         interval_minutes: int = 60,
+         enabled: bool | None = None) -> None:
     c    = _cipher()
     data = _load_raw()
     existing = data.get(host, {})
+    # If caller passes explicit enabled value use it; else preserve existing (True for new hosts)
+    new_enabled = enabled if enabled is not None else existing.get("enabled", True)
     data[host] = {
         "host":             host,
         "username":         username,
@@ -69,7 +72,7 @@ def save(host: str, username: str, password: str,
         "port":             port,
         "verify_ssl":       verify_ssl,
         "interval_minutes": interval_minutes,
-        "enabled":          existing.get("enabled", True),
+        "enabled":          new_enabled,
         "last_run":         existing.get("last_run"),
         "last_status":      existing.get("last_status"),
         "last_vm_count":    existing.get("last_vm_count"),

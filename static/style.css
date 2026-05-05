@@ -2158,3 +2158,184 @@ tr.ml-unmatched td:first-child {
   padding: .2rem .5rem;
   white-space: nowrap;
 }
+
+/* ── Scheduler checkboxes block (credentials page) ───────────── */
+.sched-checks {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  padding: .65rem .9rem;
+  margin: .25rem 0 .75rem;
+  display: flex;
+  flex-direction: column;
+  gap: .35rem;
+}
+.sched-checks--modal {
+  margin: .5rem 0;
+}
+.sched-checks .form-row--check,
+.sched-checks .edit-form-row { margin: 0; }
+
+/* ── ESXi Topology page ──────────────────────────────────────── */
+.page-esxi-topo { padding: 1.5rem 2rem; }
+
+.topo-group {
+  margin-bottom: 2rem;
+}
+
+.topo-group-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border-hi);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  padding: .85rem 1.25rem;
+  border-bottom: 2px solid var(--accent-dim);
+}
+
+.topo-vc-icon {
+  font-size: 1.4rem;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.topo-vc-label {
+  font-family: var(--mono);
+  font-size: .62rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  margin-bottom: .1rem;
+}
+
+.topo-vc-name {
+  font-family: var(--mono);
+  font-size: .95rem;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.topo-vc-summary {
+  margin-left: auto;
+  display: flex;
+  gap: .5rem;
+  flex-wrap: wrap;
+}
+
+.topo-vc-badge {
+  font-family: var(--mono);
+  font-size: .68rem;
+  color: var(--text-muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: .2rem .55rem;
+  white-space: nowrap;
+}
+
+.topo-esxi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-top: none;
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+  overflow: hidden;
+}
+
+.topo-esxi-card {
+  background: var(--bg-card);
+  padding: 1rem 1.1rem;
+  transition: background .15s;
+}
+.topo-esxi-card:hover { background: #161926; }
+
+.tec-header {
+  display: flex;
+  gap: .6rem;
+  align-items: flex-start;
+  margin-bottom: .75rem;
+}
+
+.tec-icon {
+  font-size: 1rem;
+  color: var(--text-dim);
+  flex-shrink: 0;
+  margin-top: .1rem;
+}
+
+.tec-name {
+  font-family: var(--mono);
+  font-size: .78rem;
+  font-weight: 600;
+  color: var(--text);
+  word-break: break-all;
+  line-height: 1.3;
+}
+
+.tec-ip { margin-top: .25rem; }
+
+.tec-stats {
+  display: flex;
+  gap: .75rem;
+  flex-wrap: wrap;
+  margin-bottom: .75rem;
+}
+
+.tec-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 44px;
+}
+
+.tec-stat-val {
+  font-family: var(--mono);
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.1;
+}
+
+.tec-stat-key {
+  font-size: .6rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  margin-top: .1rem;
+  white-space: nowrap;
+}
+
+/* Power bar */
+.tec-bar-wrap {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+}
+
+.tec-bar {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: var(--bg);
+  display: flex;
+}
+
+.tec-bar-fill {
+  height: 100%;
+  transition: width .3s ease;
+}
+.tec-bar-fill--on  { background: var(--green); }
+.tec-bar-fill--off { background: var(--red-dim); }
+
+.tec-bar-label {
+  font-family: var(--mono);
+  font-size: .62rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  min-width: 42px;
+  text-align: right;
+}

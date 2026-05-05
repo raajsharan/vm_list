@@ -1,0 +1,174 @@
+{% extends "base.html" %}
+{% block title %}ESXi Topology — VMware Inventory{% endblock %}
+
+{% block content %}
+<div class="page-esxi-topo">
+
+  <div class="inventory-header">
+    <div>
+      <div class="page-label">INFRASTRUCTURE MAP</div>
+      <h1 class="page-title">ESXi <span class="accent">Host Topology</span></h1>
+      <p class="hero-sub" style="margin-top:.4rem">
+        ESXi hosts grouped by the vCenter or standalone ESXi they were discovered from.
+      </p>
+    </div>
+    <div class="inventory-actions">
+      <a href="{{ url_for('dashboard') }}" class="btn btn--outline">← Dashboard</a>
+    </div>
+  </div>
+
+  <!-- ── Summary stats ── -->
+  <div class="stats-bar" style="grid-template-columns:repeat(3,1fr)">
+    <div class="stat">
+      <span class="stat-val">{{ total_vcenter }}</span>
+      <span class="stat-key">vCenter / ESXi Sources</span>
+    </div>
+    <div class="stat">
+      <span class="stat-val accent">{{ total_esxi }}</span>
+      <span class="stat-key">ESXi Hosts</span>
+    </div>
+    <div class="stat">
+      <span class="stat-val">{{ total_vms }}</span>
+      <span class="stat-key">Total VMs</span>
+    </div>
+  </div>
+
+  {% if not groups %}
+  <div class="empty-state" style="margin-top:2rem">
+    <div class="empty-icon">◈</div>
+    <p>No inventory data available. Run a discovery first.</p>
+    <a href="{{ url_for('index') }}" class="btn btn--primary" style="margin-top:1rem">Run Discovery</a>
+  </div>
+  {% else %}
+
+  <!-- ── Filter ── -->
+  <div class="filter-bar" style="margin-bottom:1.25rem">
+    <div class="search-wrapper">
+      <span class="search-icon">⌕</span>
+      <input type="text" id="topoSearch" class="search-input"
+             placeholder="Filter by ESXi name, IP, or vCenter…"
+             autocomplete="off" spellcheck="false" />
+      <button class="search-clear" id="topoClear" style="display:none;">✕</button>
+    </div>
+  </div>
+
+  <!-- ── vCenter groups ── -->
+  {% for vcenter, esxi_list in groups.items() %}
+  <div class="topo-group" data-vc="{{ vcenter }}">
+
+    <div class="topo-group-header">
+      <div class="topo-vc-icon">⬡</div>
+      <div>
+        <div class="topo-vc-label">VCENTER / SOURCE</div>
+        <div class="topo-vc-name">{{ vcenter }}</div>
+      </div>
+      <div class="topo-vc-summary">
+        <span class="topo-vc-badge">{{ esxi_list | length }} ESXi host{{ 's' if esxi_list | length != 1 else '' }}</span>
+        <span class="topo-vc-badge">{{ esxi_list | sum(attribute='vm_count') }} VMs</span>
+      </div>
+    </div>
+
+    <div class="topo-esxi-grid">
+      {% for esxi in esxi_list %}
+      {% set pct_on = ((esxi.powered_on / esxi.vm_count * 100) | round | int) if esxi.vm_count > 0 else 0 %}
+      <div class="topo-esxi-card" data-search="{{ esxi.esxi_name | lower }} {{ esxi.esxi_ip | lower }} {{ vcenter | lower }}">
+
+        <div class="tec-header">
+          <div class="tec-icon">▣</div>
+          <div class="tec-info">
+            <div class="tec-name">
+              {% if esxi.esxi_name != 'Not Available' %}
+                {{ esxi.esxi_name }}
+              {% else %}
+                <span class="na">Unknown ESXi</span>
+              {% endif %}
+            </div>
+            <div class="tec-ip">
+              {% if esxi.esxi_ip != 'Not Available' %}
+                <span class="ip-tag" style="font-size:.68rem">{{ esxi.esxi_ip }}</span>
+              {% else %}
+                <span class="na" style="font-size:.72rem">IP not available</span>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+
+        <div class="tec-stats">
+          <div class="tec-stat">
+            <span class="tec-stat-val">{{ esxi.vm_count }}</span>
+            <span class="tec-stat-key">Total VMs</span>
+          </div>
+          <div class="tec-stat">
+            <span class="tec-stat-val" style="color:var(--green)">{{ esxi.powered_on }}</span>
+            <span class="tec-stat-key">Powered On</span>
+          </div>
+          <div class="tec-stat">
+            <span class="tec-stat-val" style="color:var(--red)">{{ esxi.powered_off }}</span>
+            <span class="tec-stat-key">Powered Off</span>
+          </div>
+          {% if esxi.suspended > 0 %}
+          <div class="tec-stat">
+            <span class="tec-stat-val" style="color:var(--yellow)">{{ esxi.suspended }}</span>
+            <span class="tec-stat-key">Suspended</span>
+          </div>
+          {% endif %}
+        </div>
+
+        <!-- Power bar -->
+        <div class="tec-bar-wrap" title="{{ pct_on }}% powered on">
+          <div class="tec-bar">
+            <div class="tec-bar-fill tec-bar-fill--on"  style="width:{{ pct_on }}%"></div>
+            <div class="tec-bar-fill tec-bar-fill--off" style="width:{{ 100 - pct_on }}%"></div>
+          </div>
+          <span class="tec-bar-label">{{ pct_on }}% on</span>
+        </div>
+
+      </div>
+      {% endfor %}
+    </div>
+
+  </div>
+  {% endfor %}
+
+  {% endif %}
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const input   = document.getElementById('topoSearch');
+  const clear   = document.getElementById('topoClear');
+  const groups  = document.querySelectorAll('.topo-group');
+  const cards   = document.querySelectorAll('.topo-esxi-card');
+
+  if (!input) return;
+
+  input.addEventListener('input', function () {
+    const q = input.value.toLowerCase().trim();
+    clear.style.display = q ? 'inline-flex' : 'none';
+
+    groups.forEach(grp => {
+      const vcText = (grp.dataset.vc || '').toLowerCase();
+      let anyVisible = false;
+
+      grp.querySelectorAll('.topo-esxi-card').forEach(card => {
+        const cardText = (card.dataset.search || '') + ' ' + vcText;
+        const show = !q || cardText.includes(q);
+        card.style.display = show ? '' : 'none';
+        if (show) anyVisible = true;
+      });
+
+      grp.style.display = anyVisible ? '' : 'none';
+    });
+  });
+
+  clear.addEventListener('click', function () {
+    input.value = '';
+    input.dispatchEvent(new Event('input'));
+    input.focus();
+  });
+})();
+</script>
+{% endblock %}

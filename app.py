@@ -214,29 +214,43 @@ def create_app() -> Flask:
 
     @app.route("/credentials/add", methods=["POST"])
     def cred_add():
-        host     = request.form.get("host", "").strip()
-        username = request.form.get("username", "").strip()
-        password = request.form.get("password", "")
-        port     = int(request.form.get("port", 443) or 443)
-        verify   = request.form.get("verify_ssl") == "on"
-        interval = max(5, int(request.form.get("interval_minutes", 60) or 60))
+        host      = request.form.get("host", "").strip()
+        username  = request.form.get("username", "").strip()
+        password  = request.form.get("password", "")
+        port      = int(request.form.get("port", 443) or 443)
+        verify    = request.form.get("verify_ssl") == "on"
+        interval  = max(5, int(request.form.get("interval_minutes", 60) or 60))
+        sched_on  = request.form.get("scheduler_enabled") == "on"
+        run_once  = request.form.get("run_once") == "on"
 
         if not host or not username or not password:
             flash("Host, username, and password are required.", "error")
             return redirect(url_for("credentials"))
 
-        credential_store.save(host, username, password, port, verify, interval)
-        scheduler.upsert(host, interval, enabled=True)
-        flash(f"Credentials saved for {host}. Discovery scheduled every {interval} minutes.", "success")
+        credential_store.save(host, username, password, port, verify, interval, enabled=sched_on)
+        scheduler.upsert(host, interval, enabled=sched_on)
+
+        msg = f"Credentials saved for {host}."
+        if sched_on:
+            msg += f" Auto-discovery every {interval} min."
+        if run_once:
+            if host not in scheduler.active_hosts():
+                scheduler.run_now(host)
+                msg += " Running discovery now…"
+            else:
+                msg += " (discovery already running)"
+        flash(msg, "success")
         return redirect(url_for("credentials"))
 
     @app.route("/credentials/<path:host>/edit", methods=["POST"])
     def cred_edit(host):
-        username = request.form.get("username", "").strip()
-        password = request.form.get("password", "")
-        port     = int(request.form.get("port", 443) or 443)
-        verify   = request.form.get("verify_ssl") == "on"
-        interval = max(5, int(request.form.get("interval_minutes", 60) or 60))
+        username  = request.form.get("username", "").strip()
+        password  = request.form.get("password", "")
+        port      = int(request.form.get("port", 443) or 443)
+        verify    = request.form.get("verify_ssl") == "on"
+        interval  = max(5, int(request.form.get("interval_minutes", 60) or 60))
+        sched_on  = request.form.get("scheduler_enabled") == "on"
+        run_once  = request.form.get("run_once") == "on"
 
         if not username:
             flash("Username is required.", "error")
@@ -249,10 +263,17 @@ def create_app() -> Flask:
                 return redirect(url_for("credentials"))
             password = existing["password"]
 
-        credential_store.save(host, username, password, port, verify, interval)
-        enabled = credential_store.load(host).get("enabled", True)
-        scheduler.upsert(host, interval, enabled=enabled)
-        flash(f"Credentials updated for {host}.", "success")
+        credential_store.save(host, username, password, port, verify, interval, enabled=sched_on)
+        scheduler.upsert(host, interval, enabled=sched_on)
+
+        msg = f"Credentials updated for {host}."
+        if run_once:
+            if host not in scheduler.active_hosts():
+                scheduler.run_now(host)
+                msg += " Running discovery now…"
+            else:
+                msg += " (discovery already running)"
+        flash(msg, "success")
         return redirect(url_for("credentials"))
 
     @app.route("/credentials/<path:host>/delete", methods=["POST"])
@@ -500,6 +521,57 @@ def create_app() -> Flask:
     # -----------------------------------------------------------------------
     # MAC Address Lookup — compare VM MACs against uploaded IP mapping
     # -----------------------------------------------------------------------
+
+    @app.route("/esxi-topology", methods=["GET"])
+    def esxi_topology():
+        raw_vms = database.load_latest_inventory_all_hosts()
+        if not raw_vms:
+            raw_vms = cache_store.load_all_hosts()
+
+        vcenter_esxi: dict = {}   # vcenter → { (esxi_name, esxi_ip): stats }
+        for vm in raw_vms:
+            esxi_name = vm.get("esxi_host_name") or "Not Available"
+            esxi_ip   = vm.get("esxi_host_ip")   or "Not Available"
+            vcenter   = vm.get("source_host")     or "Unknown"
+            power     = vm.get("power_state")     or "unknown"
+
+            if vcenter not in vcenter_esxi:
+                vcenter_esxi[vcenter] = {}
+            key = (esxi_name, esxi_ip)
+            if key not in vcenter_esxi[vcenter]:
+                vcenter_esxi[vcenter][key] = {
+                    "esxi_name":   esxi_name,
+                    "esxi_ip":     esxi_ip,
+                    "vcenter":     vcenter,
+                    "vm_count":    0,
+                    "powered_on":  0,
+                    "powered_off": 0,
+                    "suspended":   0,
+                }
+            s = vcenter_esxi[vcenter][key]
+            s["vm_count"] += 1
+            if power == "poweredOn":
+                s["powered_on"] += 1
+            elif power == "poweredOff":
+                s["powered_off"] += 1
+            elif power == "suspended":
+                s["suspended"] += 1
+
+        groups = {
+            vc: sorted(esxi_dict.values(), key=lambda x: x["esxi_name"])
+            for vc, esxi_dict in sorted(vcenter_esxi.items())
+        }
+        total_esxi    = sum(len(v) for v in groups.values())
+        total_vcenter = len(groups)
+        total_vms     = len(raw_vms)
+
+        return render_template(
+            "esxi_topology.html",
+            groups=groups,
+            total_esxi=total_esxi,
+            total_vcenter=total_vcenter,
+            total_vms=total_vms,
+        )
 
     @app.route("/mac-lookup", methods=["GET"])
     def mac_lookup():
