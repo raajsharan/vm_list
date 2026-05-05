@@ -56,8 +56,6 @@ body {
   border-bottom: 1px solid var(--border);
 }
 .header-inner {
-  max-width: 1400px;
-  margin: 0 auto;
   padding: 0 2rem;
   height: 100%;
   display: flex;
@@ -124,8 +122,6 @@ body {
 /* ── Main ── */
 .main-content {
   flex: 1;
-  max-width: 1400px;
-  margin: 0 auto;
   padding: 2.5rem 2rem;
   width: 100%;
 }
@@ -1951,17 +1947,6 @@ code { font-family: var(--mono); font-size: 0.78rem; color: var(--accent); }
 /* ── MAC Lookup page ─────────────────────────────────────────── */
 .page-mac-lookup { padding: 1.5rem 2rem; }
 
-/* Full-width: remove the 1400px cap from main-content when MAC lookup is active */
-body:has(.page-mac-lookup--fullwidth) .main-content {
-  max-width: 100%;
-  padding-left:  1.5rem;
-  padding-right: 1.5rem;
-}
-.page-mac-lookup--fullwidth { padding: 0; }
-
-@media (max-width: 600px) {
-  body:has(.page-mac-lookup--fullwidth) .main-content { padding: 0 .75rem; }
-}
 
 /* Highlighted columns from the mapping file */
 th.col-highlight,
