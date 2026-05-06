@@ -378,11 +378,13 @@ def create_app() -> Flask:
         cfg           = config_store.load()
         running       = int(os.environ.get("PORT", 5000))
         mac_files     = mac_lookup_store.list_mapping_files()
-        asset_api_cfg = asset_api.load_config_safe()
+        asset_api_cfg   = asset_api.load_config_safe()
+        asset_cache_info = asset_api.get_cache_info()
         return render_template("settings.html", cfg=cfg, running_port=running,
                                env_file=config_store.env_file_path(),
                                mac_files=mac_files,
-                               asset_api_cfg=asset_api_cfg)
+                               asset_api_cfg=asset_api_cfg,
+                               asset_cache_info=asset_cache_info)
 
     @app.route("/settings/save", methods=["POST"])
     def settings_save():
@@ -568,6 +570,12 @@ def create_app() -> Flask:
         from flask import jsonify
         ok, msg = asset_api.test_connection()
         return jsonify({"ok": ok, "message": msg})
+
+    @app.route("/settings/refresh-asset-cache", methods=["POST"])
+    def refresh_asset_cache():
+        asset_api.invalidate_cache()
+        flash("Asset IP cache cleared — will refresh on next MAC Lookup load.", "info")
+        return redirect(url_for("settings"))
 
     # -----------------------------------------------------------------------
     # MAC Address Lookup — compare VM MACs against uploaded IP mapping

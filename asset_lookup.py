@@ -20,13 +20,14 @@ import urllib.request
 
 logger = logging.getLogger(__name__)
 
-_CONFIG_PATH  = os.path.join(os.path.dirname(__file__), "cache", "asset_api_config.json")
-_TIMEOUT      = 10   # seconds per HTTP call
-_IP_CACHE_TTL = 600  # 10 minutes
+_CONFIG_PATH     = os.path.join(os.path.dirname(__file__), "cache", "asset_api_config.json")
+_TIMEOUT         = 10   # seconds per HTTP call
+_IP_CACHE_TTL    = 600  # 10 minutes (successful fetch)
+_IP_CACHE_TTL_ERR = 60  # 1 minute retry after failed/empty fetch
 
 _lock        = threading.Lock()
 _token_state: dict = {}  # {token, expires_at}
-_ip_state:    dict = {}  # {data: {ip: label}, expires_at}
+_ip_state:    dict = {}  # {data, expires_at, main_count, ext_count, fetched_at, error}
 
 
 # ── Encryption (reuses same ENCRYPTION_KEY as credential_store) ─────────────
@@ -105,6 +106,31 @@ def invalidate_cache() -> None:
         _ip_state.clear()
 
 
+def get_cache_info() -> dict:
+    """Returns diagnostic info about the current cache state."""
+    with _lock:
+        if not _ip_state:
+            return {"status": "empty", "count": 0}
+        data = _ip_state.get("data")
+        if data is None:
+            return {"status": "empty", "count": 0}
+        expires_at  = _ip_state.get("expires_at", 0)
+        fetched_at  = _ip_state.get("fetched_at", 0)
+        main_count  = _ip_state.get("main_count", 0)
+        ext_count   = _ip_state.get("ext_count", 0)
+        error       = _ip_state.get("error", "")
+        ttl_left    = max(0, int(expires_at - time.time()))
+        return {
+            "status":      "ok" if data else ("error" if error else "empty"),
+            "count":       len(data),
+            "main_count":  main_count,
+            "ext_count":   ext_count,
+            "fetched_at":  fetched_at,
+            "ttl_left":    ttl_left,
+            "error":       error,
+        }
+
+
 # ── JWT auth ─────────────────────────────────────────────────────────────────
 
 def _get_token(cfg: dict) -> str | None:
@@ -124,11 +150,20 @@ def _get_token(cfg: dict) -> str | None:
             data = json.loads(resp.read())
         token = data.get("token")
         if not token:
+            logger.warning("Asset API login succeeded but no token in response from %s", cfg.get("base_url"))
             return None
         with _lock:
             _token_state["token"]      = token
             _token_state["expires_at"] = time.time() + 7 * 3600  # 1h before 8h TTL
         return token
+    except urllib.error.HTTPError as exc:
+        body = ""
+        try:
+            body = exc.read().decode()[:200]
+        except Exception:
+            pass
+        logger.warning("Asset API auth HTTP %d from %s: %s", exc.code, cfg.get("base_url"), body)
+        return None
     except Exception as exc:
         logger.warning("Asset API auth failed (%s): %s", cfg.get("base_url"), exc)
         return None
@@ -149,13 +184,19 @@ def _get(cfg: dict, path: str):
                 return json.loads(resp.read())
         except urllib.error.HTTPError as exc:
             if exc.code == 401 and attempt == 0:
+                logger.info("Asset API 401 on %s — refreshing token", path)
                 with _lock:
                     _token_state.clear()
                 continue
-            logger.debug("Asset API HTTP %d for %s", exc.code, path)
+            body = ""
+            try:
+                body = exc.read().decode()[:200]
+            except Exception:
+                pass
+            logger.warning("Asset API HTTP %d for %s: %s", exc.code, path, body)
             return None
         except Exception as exc:
-            logger.debug("Asset API error for %s: %s", path, exc)
+            logger.warning("Asset API request failed for %s: %s", path, exc)
             return None
     return None
 
@@ -167,7 +208,7 @@ def fetch_all_asset_ips() -> dict:
     Returns {ip_lowercase: label} where label is one of:
       "Asset Inventory", "Ext. Asset Inventory", "Both"
     Returns {} if not configured or API is unreachable.
-    Result is cached for 10 minutes.
+    Caches for 10 min on success, 1 min on empty/error (so it retries sooner).
     """
     with _lock:
         if _ip_state.get("data") is not None and time.time() < _ip_state.get("expires_at", 0):
@@ -178,25 +219,36 @@ def fetch_all_asset_ips() -> dict:
         return {}
 
     ip_sources: dict = {}  # ip → set of source labels
+    main_count = 0
+    ext_count  = 0
+    error_msg  = ""
 
     # ── Main assets (all records, no pagination) ──
     data = _get(cfg, "/api/assets/report")
-    if isinstance(data, dict):
-        assets = data.get("assets", [])
-    elif isinstance(data, list):
+    if isinstance(data, list):
         assets = data
+    elif isinstance(data, dict):
+        assets = data.get("assets", [])
     else:
         assets = []
+        error_msg = "Failed to fetch main assets — check API URL and credentials"
+        logger.warning("Asset API: /api/assets/report returned unexpected type %s", type(data))
+
     for a in assets:
         ip = (a.get("ip_address") or "").strip().lower()
         if ip:
             ip_sources.setdefault(ip, set()).add("Asset Inventory")
+            main_count += 1
+
+    logger.info("Asset API: loaded %d IPs from /api/assets/report", main_count)
 
     # ── Extended inventory (paginated) ──
     limit, page = 500, 1
     while True:
         data = _get(cfg, f"/api/extended-inventory?limit={limit}&page={page}")
         if not isinstance(data, dict):
+            if page == 1 and data is None:
+                logger.warning("Asset API: /api/extended-inventory returned no data on page 1")
             break
         items = data.get("items", [])
         if not items:
@@ -205,10 +257,13 @@ def fetch_all_asset_ips() -> dict:
             ip = (item.get("ip_address") or "").strip().lower()
             if ip:
                 ip_sources.setdefault(ip, set()).add("Ext. Asset Inventory")
+                ext_count += 1
         total = data.get("total", 0)
         if page * limit >= total:
             break
         page += 1
+
+    logger.info("Asset API: loaded %d IPs from /api/extended-inventory", ext_count)
 
     result: dict = {}
     for ip, sources in ip_sources.items():
@@ -217,45 +272,61 @@ def fetch_all_asset_ips() -> dict:
         else:
             result[ip] = next(iter(sources))
 
+    # Use shorter TTL when nothing was fetched so we retry sooner
+    ttl = _IP_CACHE_TTL if result else _IP_CACHE_TTL_ERR
+
     with _lock:
         _ip_state["data"]       = result
-        _ip_state["expires_at"] = time.time() + _IP_CACHE_TTL
+        _ip_state["expires_at"] = time.time() + ttl
+        _ip_state["fetched_at"] = time.time()
+        _ip_state["main_count"] = main_count
+        _ip_state["ext_count"]  = ext_count
+        _ip_state["error"]      = error_msg
 
-    logger.info("Asset IP cache built: %d IPs from Asset Inventory + Ext. Asset Inventory", len(result))
+    logger.info(
+        "Asset IP cache: %d unique IPs (%d main + %d ext), TTL %ds",
+        len(result), main_count, ext_count, ttl,
+    )
     return result
-
-
-def check_ips(ips: list[str]) -> str:
-    """
-    Given VM IP strings, returns the combined asset-list status:
-    "Asset Inventory", "Ext. Asset Inventory", "Both", "—", or "" (not configured).
-    """
-    if not is_configured():
-        return ""
-    ip_map = fetch_all_asset_ips()
-    found: set = set()
-    for ip in ips:
-        label = ip_map.get(ip.strip().lower())
-        if label == "Both":
-            found.update({"Asset Inventory", "Ext. Asset Inventory"})
-        elif label:
-            found.add(label)
-    if not found:
-        return "—"
-    if len(found) == 2:
-        return "Both"
-    return next(iter(found))
 
 
 # ── Test connection ───────────────────────────────────────────────────────────
 
 def test_connection() -> tuple[bool, str]:
+    """Tests auth AND data access. Returns (success, message)."""
     cfg = load_config()
     if not cfg.get("base_url"):
         return False, "No API URL configured."
+
+    # Force fresh auth
     with _lock:
         _token_state.clear()
     token = _get_token(cfg)
-    if token:
-        return True, f"Connected to {cfg['base_url']} successfully."
-    return False, "Authentication failed — check the URL, username, and password."
+    if not token:
+        return False, "Authentication failed — check the URL, username, and password."
+
+    # Test data access on main assets
+    data = _get(cfg, "/api/assets/report")
+    if isinstance(data, list):
+        asset_count = len(data)
+    elif isinstance(data, dict):
+        asset_count = len(data.get("assets", []))
+    else:
+        return False, (
+            f"Authenticated OK, but /api/assets/report returned an error. "
+            "Check that the configured user has access to the Asset List."
+        )
+
+    # Test ext inventory access
+    ext_data = _get(cfg, "/api/extended-inventory?limit=1&page=1")
+    ext_total = ext_data.get("total", "?") if isinstance(ext_data, dict) else "error"
+
+    # Invalidate IP cache so next MAC Lookup load fetches fresh data
+    with _lock:
+        _ip_state.clear()
+
+    return True, (
+        f"Connected to {cfg['base_url']}. "
+        f"Asset Inventory: {asset_count} record(s). "
+        f"Ext. Asset Inventory: {ext_total} record(s)."
+    )

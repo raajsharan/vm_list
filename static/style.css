@@ -2387,3 +2387,17 @@ tr.ml-unmatched td:first-child {
 }
 .asset-test-result--ok  { color: var(--green); }
 .asset-test-result--err { color: var(--red); }
+
+.asset-cache-bar {
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+  padding: .5rem .75rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: .77rem;
+  flex-wrap: wrap;
+}
+
+.dot--red { background: var(--red); }

@@ -251,13 +251,41 @@
             </div>
           </div>
 
-          <div class="settings-form-footer" style="gap:.75rem;align-items:center">
+          <div class="settings-form-footer" style="gap:.75rem;align-items:center;flex-wrap:wrap">
             <button type="submit" class="btn btn--primary">Save API Settings</button>
             <button type="button" class="btn btn--secondary" id="testAssetApiBtn">Test Connection</button>
             <span class="asset-test-result" id="assetTestResult"></span>
           </div>
 
         </form>
+
+        <!-- Cache status & refresh -->
+        <div class="asset-cache-bar" style="margin-top:1rem">
+          {% set ci = asset_cache_info %}
+          {% if ci.get('count', 0) > 0 %}
+            <span class="dot dot--green"></span>
+            Cache loaded &mdash;
+            <strong style="color:var(--green)">{{ ci.count }}</strong> IPs
+            ({{ ci.main_count }} asset + {{ ci.ext_count }} ext)
+            &nbsp;·&nbsp; expires in {{ ci.ttl_left }}s
+          {% elif ci.get('error') %}
+            <span class="dot dot--red" style="background:var(--red)"></span>
+            <span style="color:var(--red)">{{ ci.error }}</span>
+          {% elif asset_api_cfg.get('base_url') %}
+            <span class="dot dot--yellow"></span>
+            <span style="color:var(--yellow)">Cache empty — open MAC Lookup to trigger a fetch, or Test Connection above.</span>
+          {% else %}
+            <span class="dot dot--yellow"></span>
+            <span style="color:var(--text-muted)">Not configured yet.</span>
+          {% endif %}
+          {% if asset_api_cfg.get('base_url') %}
+          &nbsp;
+          <form method="POST" action="{{ url_for('refresh_asset_cache') }}" style="display:inline">
+            <button type="submit" class="btn btn--ghost btn--xs">↺ Refresh Cache</button>
+          </form>
+          {% endif %}
+        </div>
+
       </div>
 
       <!-- Restart instructions card -->
