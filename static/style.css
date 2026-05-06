@@ -2401,3 +2401,105 @@ tr.ml-unmatched td:first-child {
 }
 
 .dot--red { background: var(--red); }
+
+/* ── ESXi Topology: view toggle buttons ── */
+.view-toggle {
+  display: flex;
+  gap: .25rem;
+  align-items: center;
+}
+
+.view-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  padding: .32rem .7rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: .72rem;
+  cursor: pointer;
+  transition: background .15s, color .15s, border-color .15s;
+  white-space: nowrap;
+}
+.view-btn:hover {
+  background: var(--bg-card);
+  color: var(--text);
+  border-color: var(--border-hi);
+}
+.view-btn.active {
+  background: var(--accent-dim);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* ── ESXi Topology: compact view overrides ── */
+#cardsView[data-view="compact"] .topo-esxi-grid {
+  grid-template-columns: repeat(auto-fill, minmax(155px, 1fr));
+  gap: .5rem;
+}
+#cardsView[data-view="compact"] .topo-esxi-card {
+  padding: .55rem .7rem;
+  gap: .4rem;
+}
+#cardsView[data-view="compact"] .tec-bar-wrap {
+  display: none;
+}
+#cardsView[data-view="compact"] .tec-header {
+  gap: .4rem;
+  margin-bottom: .25rem;
+}
+#cardsView[data-view="compact"] .tec-icon {
+  font-size: .8rem;
+}
+#cardsView[data-view="compact"] .tec-name {
+  font-size: .7rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 110px;
+}
+#cardsView[data-view="compact"] .tec-ip {
+  margin-top: .1rem;
+}
+#cardsView[data-view="compact"] .tec-stats {
+  gap: .35rem;
+  flex-wrap: nowrap;
+}
+#cardsView[data-view="compact"] .tec-stat-val {
+  font-size: .88rem;
+}
+#cardsView[data-view="compact"] .tec-stat-key {
+  font-size: .54rem;
+}
+
+/* ── ESXi Topology: table view — inline % bar ── */
+.tbl-pct-wrap {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  justify-content: center;
+}
+.tbl-pct-bar {
+  flex: 0 0 60px;
+  height: 5px;
+  background: var(--bg);
+  border-radius: 3px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+.tbl-pct-fill {
+  height: 100%;
+  background: var(--green);
+  border-radius: 3px;
+  transition: width .3s ease;
+}
+.tbl-pct-label {
+  font-family: var(--mono);
+  font-size: .67rem;
+  color: var(--text-muted);
+  min-width: 30px;
+  text-align: left;
+}

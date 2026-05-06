@@ -13,6 +13,20 @@
       </p>
     </div>
     <div class="inventory-actions">
+      <div class="view-toggle" id="viewToggle">
+        <button class="view-btn" data-view="cards"   title="Card view">
+          <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><rect x="1" y="1" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.4"/><rect x="9" y="1" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.4"/><rect x="1" y="9" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.4"/><rect x="9" y="9" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.4"/></svg>
+          Cards
+        </button>
+        <button class="view-btn" data-view="compact" title="Compact view">
+          <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><rect x="1" y="1" width="3" height="3" rx=".5" stroke="currentColor" stroke-width="1.3"/><rect x="6" y="1" width="3" height="3" rx=".5" stroke="currentColor" stroke-width="1.3"/><rect x="11" y="1" width="3" height="3" rx=".5" stroke="currentColor" stroke-width="1.3"/><rect x="1" y="6" width="3" height="3" rx=".5" stroke="currentColor" stroke-width="1.3"/><rect x="6" y="6" width="3" height="3" rx=".5" stroke="currentColor" stroke-width="1.3"/><rect x="11" y="6" width="3" height="3" rx=".5" stroke="currentColor" stroke-width="1.3"/><rect x="1" y="11" width="3" height="3" rx=".5" stroke="currentColor" stroke-width="1.3"/><rect x="6" y="11" width="3" height="3" rx=".5" stroke="currentColor" stroke-width="1.3"/><rect x="11" y="11" width="3" height="3" rx=".5" stroke="currentColor" stroke-width="1.3"/></svg>
+          Compact
+        </button>
+        <button class="view-btn" data-view="table"   title="Table view">
+          <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><rect x="1" y="1" width="13" height="13" rx="1" stroke="currentColor" stroke-width="1.3"/><line x1="1" y1="5" x2="14" y2="5" stroke="currentColor" stroke-width="1.1"/><line x1="1" y1="9" x2="14" y2="9" stroke="currentColor" stroke-width="1.1"/><line x1="5" y1="5" x2="5" y2="14" stroke="currentColor" stroke-width="1.1"/></svg>
+          Table
+        </button>
+      </div>
       <a href="{{ url_for('dashboard') }}" class="btn btn--outline">← Dashboard</a>
     </div>
   </div>
@@ -52,83 +66,150 @@
     </div>
   </div>
 
-  <!-- ── vCenter groups ── -->
-  {% for vcenter, esxi_list in groups.items() %}
-  <div class="topo-group" data-vc="{{ vcenter }}">
+  <!-- ══════════════════════════════════════════════════════════════ -->
+  <!-- VIEW: Cards + Compact (shared markup, CSS-switched)           -->
+  <!-- ══════════════════════════════════════════════════════════════ -->
+  <div id="cardsView">
+    {% for vcenter, esxi_list in groups.items() %}
+    <div class="topo-group" data-vc="{{ vcenter }}">
 
-    <div class="topo-group-header">
-      <div class="topo-vc-icon">⬡</div>
-      <div>
-        <div class="topo-vc-label">VCENTER / SOURCE</div>
-        <div class="topo-vc-name">{{ vcenter }}</div>
+      <div class="topo-group-header">
+        <div class="topo-vc-icon">⬡</div>
+        <div>
+          <div class="topo-vc-label">VCENTER / SOURCE</div>
+          <div class="topo-vc-name">{{ vcenter }}</div>
+        </div>
+        <div class="topo-vc-summary">
+          <span class="topo-vc-badge">{{ esxi_list | length }} ESXi host{{ 's' if esxi_list | length != 1 else '' }}</span>
+          <span class="topo-vc-badge">{{ esxi_list | sum(attribute='vm_count') }} VMs</span>
+        </div>
       </div>
-      <div class="topo-vc-summary">
-        <span class="topo-vc-badge">{{ esxi_list | length }} ESXi host{{ 's' if esxi_list | length != 1 else '' }}</span>
-        <span class="topo-vc-badge">{{ esxi_list | sum(attribute='vm_count') }} VMs</span>
-      </div>
-    </div>
 
-    <div class="topo-esxi-grid">
-      {% for esxi in esxi_list %}
-      {% set pct_on = ((esxi.powered_on / esxi.vm_count * 100) | round | int) if esxi.vm_count > 0 else 0 %}
-      <div class="topo-esxi-card" data-search="{{ esxi.esxi_name | lower }} {{ esxi.esxi_ip | lower }} {{ vcenter | lower }}">
+      <div class="topo-esxi-grid">
+        {% for esxi in esxi_list %}
+        {% set pct_on = ((esxi.powered_on / esxi.vm_count * 100) | round | int) if esxi.vm_count > 0 else 0 %}
+        <div class="topo-esxi-card" data-search="{{ esxi.esxi_name | lower }} {{ esxi.esxi_ip | lower }} {{ vcenter | lower }}">
 
-        <div class="tec-header">
-          <div class="tec-icon">▣</div>
-          <div class="tec-info">
-            <div class="tec-name">
-              {% if esxi.esxi_name != 'Not Available' %}
-                {{ esxi.esxi_name }}
-              {% else %}
-                <span class="na">Unknown ESXi</span>
-              {% endif %}
+          <div class="tec-header">
+            <div class="tec-icon">▣</div>
+            <div class="tec-info">
+              <div class="tec-name">
+                {% if esxi.esxi_name != 'Not Available' %}{{ esxi.esxi_name }}
+                {% else %}<span class="na">Unknown ESXi</span>{% endif %}
+              </div>
+              <div class="tec-ip">
+                {% if esxi.esxi_ip != 'Not Available' %}
+                  <span class="ip-tag" style="font-size:.68rem">{{ esxi.esxi_ip }}</span>
+                {% else %}
+                  <span class="na" style="font-size:.72rem">IP not available</span>
+                {% endif %}
+              </div>
             </div>
-            <div class="tec-ip">
-              {% if esxi.esxi_ip != 'Not Available' %}
-                <span class="ip-tag" style="font-size:.68rem">{{ esxi.esxi_ip }}</span>
-              {% else %}
-                <span class="na" style="font-size:.72rem">IP not available</span>
-              {% endif %}
+          </div>
+
+          <div class="tec-stats">
+            <div class="tec-stat">
+              <span class="tec-stat-val">{{ esxi.vm_count }}</span>
+              <span class="tec-stat-key">Total VMs</span>
             </div>
+            <div class="tec-stat">
+              <span class="tec-stat-val" style="color:var(--green)">{{ esxi.powered_on }}</span>
+              <span class="tec-stat-key">Powered On</span>
+            </div>
+            <div class="tec-stat">
+              <span class="tec-stat-val" style="color:var(--red)">{{ esxi.powered_off }}</span>
+              <span class="tec-stat-key">Powered Off</span>
+            </div>
+            {% if esxi.suspended > 0 %}
+            <div class="tec-stat">
+              <span class="tec-stat-val" style="color:var(--yellow)">{{ esxi.suspended }}</span>
+              <span class="tec-stat-key">Suspended</span>
+            </div>
+            {% endif %}
           </div>
-        </div>
 
-        <div class="tec-stats">
-          <div class="tec-stat">
-            <span class="tec-stat-val">{{ esxi.vm_count }}</span>
-            <span class="tec-stat-key">Total VMs</span>
+          <!-- Power bar (hidden in compact view via CSS) -->
+          <div class="tec-bar-wrap" title="{{ pct_on }}% powered on">
+            <div class="tec-bar">
+              <div class="tec-bar-fill tec-bar-fill--on"  style="width:{{ pct_on }}%"></div>
+              <div class="tec-bar-fill tec-bar-fill--off" style="width:{{ 100 - pct_on }}%"></div>
+            </div>
+            <span class="tec-bar-label">{{ pct_on }}% on</span>
           </div>
-          <div class="tec-stat">
-            <span class="tec-stat-val" style="color:var(--green)">{{ esxi.powered_on }}</span>
-            <span class="tec-stat-key">Powered On</span>
-          </div>
-          <div class="tec-stat">
-            <span class="tec-stat-val" style="color:var(--red)">{{ esxi.powered_off }}</span>
-            <span class="tec-stat-key">Powered Off</span>
-          </div>
-          {% if esxi.suspended > 0 %}
-          <div class="tec-stat">
-            <span class="tec-stat-val" style="color:var(--yellow)">{{ esxi.suspended }}</span>
-            <span class="tec-stat-key">Suspended</span>
-          </div>
-          {% endif %}
-        </div>
 
-        <!-- Power bar -->
-        <div class="tec-bar-wrap" title="{{ pct_on }}% powered on">
-          <div class="tec-bar">
-            <div class="tec-bar-fill tec-bar-fill--on"  style="width:{{ pct_on }}%"></div>
-            <div class="tec-bar-fill tec-bar-fill--off" style="width:{{ 100 - pct_on }}%"></div>
-          </div>
-          <span class="tec-bar-label">{{ pct_on }}% on</span>
         </div>
-
+        {% endfor %}
       </div>
-      {% endfor %}
-    </div>
 
+    </div>
+    {% endfor %}
   </div>
-  {% endfor %}
+
+  <!-- ══════════════════════════════════════════════════════════════ -->
+  <!-- VIEW: Table (flat, sortable)                                   -->
+  <!-- ══════════════════════════════════════════════════════════════ -->
+  <div id="tableView" style="display:none">
+    <div class="table-wrapper">
+      <table class="vm-table" id="topoTable">
+        <thead>
+          <tr>
+            <th class="sortable" data-col="0">#</th>
+            <th class="sortable" data-col="1">vCenter / Source <span class="sort-arrow">↕</span></th>
+            <th class="sortable" data-col="2">ESXi Name <span class="sort-arrow">↕</span></th>
+            <th class="sortable" data-col="3">ESXi IP <span class="sort-arrow">↕</span></th>
+            <th class="sortable" data-col="4">Total VMs <span class="sort-arrow">↕</span></th>
+            <th class="sortable" data-col="5">Powered On <span class="sort-arrow">↕</span></th>
+            <th class="sortable" data-col="6">Powered Off <span class="sort-arrow">↕</span></th>
+            <th class="sortable" data-col="7">Suspended <span class="sort-arrow">↕</span></th>
+            <th class="sortable" data-col="8">% On <span class="sort-arrow">↕</span></th>
+          </tr>
+        </thead>
+        <tbody id="topoTableBody">
+          {% set row_num = namespace(n=0) %}
+          {% for vcenter, esxi_list in groups.items() %}
+            {% for esxi in esxi_list %}
+            {% set pct_on = ((esxi.powered_on / esxi.vm_count * 100) | round | int) if esxi.vm_count > 0 else 0 %}
+            {% set row_num.n = row_num.n + 1 %}
+            <tr class="vm-row"
+                data-vc="{{ vcenter | lower }}"
+                data-name="{{ esxi.esxi_name | lower }}"
+                data-ip="{{ esxi.esxi_ip | lower }}">
+              <td class="row-num">{{ row_num.n }}</td>
+              <td><span class="accent" style="font-size:.8rem">{{ vcenter }}</span></td>
+              <td>
+                <span class="tec-icon" style="font-size:.7rem;margin-right:.3rem;opacity:.6">▣</span>
+                {% if esxi.esxi_name != 'Not Available' %}{{ esxi.esxi_name }}
+                {% else %}<span class="na">Unknown ESXi</span>{% endif %}
+              </td>
+              <td>
+                {% if esxi.esxi_ip != 'Not Available' %}
+                  <span class="ip-tag" style="font-size:.68rem">{{ esxi.esxi_ip }}</span>
+                {% else %}<span class="na">—</span>{% endif %}
+              </td>
+              <td style="text-align:center">{{ esxi.vm_count }}</td>
+              <td style="text-align:center;color:var(--green)">{{ esxi.powered_on }}</td>
+              <td style="text-align:center;color:var(--red)">{{ esxi.powered_off }}</td>
+              <td style="text-align:center{% if esxi.suspended == 0 %};color:var(--text-dim){% else %};color:var(--yellow){% endif %}">
+                {{ esxi.suspended if esxi.suspended > 0 else '—' }}
+              </td>
+              <td style="text-align:center">
+                <div class="tbl-pct-wrap" title="{{ pct_on }}% powered on">
+                  <div class="tbl-pct-bar">
+                    <div class="tbl-pct-fill" style="width:{{ pct_on }}%"></div>
+                  </div>
+                  <span class="tbl-pct-label">{{ pct_on }}%</span>
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+          {% endfor %}
+        </tbody>
+      </table>
+      <div class="no-results" id="tableNoResults" style="display:none">
+        No ESXi hosts match your filter.
+      </div>
+    </div>
+  </div>
 
   {% endif %}
 
@@ -138,37 +219,101 @@
 {% block scripts %}
 <script>
 (function () {
-  const input   = document.getElementById('topoSearch');
-  const clear   = document.getElementById('topoClear');
-  const groups  = document.querySelectorAll('.topo-group');
-  const cards   = document.querySelectorAll('.topo-esxi-card');
 
+  /* ── View switcher ─────────────────────────────────────── */
+  const viewBtns  = document.querySelectorAll('.view-btn');
+  const cardsView = document.getElementById('cardsView');
+  const tableView = document.getElementById('tableView');
+
+  function setView(view) {
+    viewBtns.forEach(b => b.classList.toggle('active', b.dataset.view === view));
+    if (view === 'table') {
+      cardsView.style.display = 'none';
+      tableView.style.display = '';
+    } else {
+      cardsView.style.display = '';
+      tableView.style.display = 'none';
+      cardsView.dataset.view = view;   // drives compact CSS via [data-view="compact"]
+    }
+    localStorage.setItem('esxi-topo-view', view);
+    applyFilter();
+  }
+
+  viewBtns.forEach(btn => btn.addEventListener('click', () => setView(btn.dataset.view)));
+  setView(localStorage.getItem('esxi-topo-view') || 'cards');
+
+
+  /* ── Filter / search ───────────────────────────────────── */
+  const input  = document.getElementById('topoSearch');
+  const clear  = document.getElementById('topoClear');
   if (!input) return;
 
-  input.addEventListener('input', function () {
+  function applyFilter() {
     const q = input.value.toLowerCase().trim();
     clear.style.display = q ? 'inline-flex' : 'none';
 
-    groups.forEach(grp => {
-      const vcText = (grp.dataset.vc || '').toLowerCase();
-      let anyVisible = false;
+    const currentView = localStorage.getItem('esxi-topo-view') || 'cards';
 
-      grp.querySelectorAll('.topo-esxi-card').forEach(card => {
-        const cardText = (card.dataset.search || '') + ' ' + vcText;
-        const show = !q || cardText.includes(q);
-        card.style.display = show ? '' : 'none';
-        if (show) anyVisible = true;
+    if (currentView === 'table') {
+      // ── Filter flat table rows ──
+      const rows = document.querySelectorAll('#topoTableBody tr.vm-row');
+      let visible = 0;
+      rows.forEach(row => {
+        const text = (row.dataset.vc + ' ' + row.dataset.name + ' ' + row.dataset.ip);
+        const show = !q || text.includes(q);
+        row.style.display = show ? '' : 'none';
+        if (show) { visible++; row.querySelector('.row-num').textContent = visible; }
       });
+      const nr = document.getElementById('tableNoResults');
+      if (nr) nr.style.display = visible === 0 ? 'block' : 'none';
+    } else {
+      // ── Filter cards ──
+      const groups = document.querySelectorAll('.topo-group');
+      groups.forEach(grp => {
+        const vcText = (grp.dataset.vc || '').toLowerCase();
+        let anyVisible = false;
+        grp.querySelectorAll('.topo-esxi-card').forEach(card => {
+          const show = !q || (card.dataset.search + ' ' + vcText).includes(q);
+          card.style.display = show ? '' : 'none';
+          if (show) anyVisible = true;
+        });
+        grp.style.display = anyVisible ? '' : 'none';
+      });
+    }
+  }
 
-      grp.style.display = anyVisible ? '' : 'none';
+  input.addEventListener('input', applyFilter);
+  clear.addEventListener('click', function () {
+    input.value = '';
+    applyFilter();
+    input.focus();
+  });
+
+
+  /* ── Table sorting ─────────────────────────────────────── */
+  let sortCol = -1, sortAsc = true;
+  document.querySelectorAll('#topoTable th.sortable').forEach(th => {
+    th.addEventListener('click', () => {
+      const col = parseInt(th.dataset.col);
+      sortAsc = sortCol === col ? !sortAsc : true;
+      sortCol = col;
+      document.querySelectorAll('#topoTable th.sortable')
+        .forEach(t => t.classList.remove('sorted-asc', 'sorted-desc'));
+      th.classList.add(sortAsc ? 'sorted-asc' : 'sorted-desc');
+      const tbody = document.getElementById('topoTableBody');
+      const rows = Array.from(tbody.querySelectorAll('tr.vm-row'));
+      rows.sort((a, b) => {
+        const av = a.cells[col]?.textContent.trim() || '';
+        const bv = b.cells[col]?.textContent.trim() || '';
+        return sortAsc
+          ? av.localeCompare(bv, undefined, {numeric: true})
+          : bv.localeCompare(av, undefined, {numeric: true});
+      });
+      rows.forEach(r => tbody.appendChild(r));
+      applyFilter();
     });
   });
 
-  clear.addEventListener('click', function () {
-    input.value = '';
-    input.dispatchEvent(new Event('input'));
-    input.focus();
-  });
 })();
 </script>
 {% endblock %}
