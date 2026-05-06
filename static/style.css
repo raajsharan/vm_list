@@ -1006,6 +1006,76 @@ code { font-family: var(--mono); font-size: 0.78rem; color: var(--accent); }
   50%       { box-shadow: 0 0 0 1px rgba(62,207,142,0.25), 0 4px 32px rgba(62,207,142,0.14); }
 }
 
+/* ── Bulk-select action bar ─────────────────────────────────── */
+.sel-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  background: var(--bg-card);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-lg);
+  padding: 0.6rem 1rem;
+  margin-bottom: 0.85rem;
+  animation: sel-bar-in 0.15s ease;
+}
+@keyframes sel-bar-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.sel-bar-left  { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+.sel-bar-right { display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0; }
+.sel-bar-count {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--accent);
+  min-width: 72px;
+}
+
+/* ── Per-card checkbox ──────────────────────────────────────── */
+.hc-select-wrap {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.hc-select-wrap input[type="checkbox"] { display: none; }
+.hc-checkmark {
+  width: 17px;
+  height: 17px;
+  border: 1.5px solid var(--border-hi);
+  border-radius: 4px;
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, border-color 0.15s;
+  flex-shrink: 0;
+}
+.hc-checkmark::after {
+  content: '';
+  display: none;
+  width: 9px;
+  height: 5px;
+  border-left: 2px solid #fff;
+  border-bottom: 2px solid #fff;
+  transform: rotate(-45deg) translateY(-1px);
+}
+.hc-select-wrap:hover .hc-checkmark { border-color: var(--accent); }
+.hc-select-wrap input:checked ~ .hc-checkmark {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.hc-select-wrap input:checked ~ .hc-checkmark::after { display: block; }
+.hc-select-wrap input:disabled ~ .hc-checkmark { opacity: 0.35; cursor: not-allowed; }
+
+/* ── Selected card highlight ────────────────────────────────── */
+.host-card--selected {
+  border-color: rgba(79, 163, 224, 0.5) !important;
+  box-shadow: 0 0 0 1px rgba(79, 163, 224, 0.2);
+}
+
 /* ── Card header ───────────────────────────────────────────── */
 .hc-header {
   padding: 0.9rem 1.25rem;

@@ -338,6 +338,29 @@ def create_app() -> Flask:
         flash(f"Discovery triggered for {host}. Results will appear when complete.", "success")
         return redirect(url_for("credentials"))
 
+    @app.route("/credentials/run-selected", methods=["POST"])
+    def cred_run_selected():
+        hosts = request.form.getlist("hosts")
+        if not hosts:
+            flash("No hosts selected.", "warning")
+            return redirect(url_for("credentials"))
+
+        active  = scheduler.active_hosts()
+        started = []
+        skipped = []
+        for host in hosts:
+            if host in active:
+                skipped.append(host)
+            else:
+                scheduler.run_now(host)
+                started.append(host)
+
+        if started:
+            flash(f"Discovery triggered for {len(started)} host(s): {', '.join(started)}.", "success")
+        if skipped:
+            flash(f"Already running — skipped: {', '.join(skipped)}.", "warning")
+        return redirect(url_for("credentials"))
+
     # -----------------------------------------------------------------------
     # Dashboard — asset coverage statistics (new)
     # -----------------------------------------------------------------------
