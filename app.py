@@ -27,6 +27,7 @@ import credential_store
 import scheduler
 import config_store
 import mac_lookup as mac_lookup_store
+import asset_lookup as asset_api
 
 # ---------------------------------------------------------------------------
 # Logging — never log passwords
@@ -374,12 +375,14 @@ def create_app() -> Flask:
 
     @app.route("/settings", methods=["GET"])
     def settings():
-        cfg       = config_store.load()
-        running   = int(os.environ.get("PORT", 5000))
-        mac_files = mac_lookup_store.list_mapping_files()
+        cfg           = config_store.load()
+        running       = int(os.environ.get("PORT", 5000))
+        mac_files     = mac_lookup_store.list_mapping_files()
+        asset_api_cfg = asset_api.load_config_safe()
         return render_template("settings.html", cfg=cfg, running_port=running,
                                env_file=config_store.env_file_path(),
-                               mac_files=mac_files)
+                               mac_files=mac_files,
+                               asset_api_cfg=asset_api_cfg)
 
     @app.route("/settings/save", methods=["POST"])
     def settings_save():
@@ -420,6 +423,9 @@ def create_app() -> Flask:
         mapping = mac_lookup_store.load_mapping()
         index   = mac_lookup_store.build_index(mapping)
 
+        asset_configured = asset_api.is_configured()
+        asset_ip_map     = asset_api.fetch_all_asset_ips() if asset_configured else {}
+
         raw_vms = database.load_latest_inventory_all_hosts()
         if not raw_vms:
             raw_vms = cache_store.load_all_hosts()
@@ -441,6 +447,27 @@ def create_app() -> Flask:
                     all_matches.append((mac, index[norm]))
 
             display = data_processor.normalise_for_display([vm])[0]
+
+            # Asset list for CSV
+            if asset_configured:
+                vm_ips = [ip.strip() for ip in display["ip_addresses"].split(" | ")
+                          if ip.strip() and ip.strip() != "Not Available"]
+                found: set = set()
+                for ip in vm_ips:
+                    label = asset_ip_map.get(ip.lower())
+                    if label == "Both":
+                        found.update({"Asset Inventory", "Ext. Asset Inventory"})
+                    elif label:
+                        found.add(label)
+                if not found:
+                    asset_list_val = "Not Found"
+                elif len(found) == 2:
+                    asset_list_val = "Both"
+                else:
+                    asset_list_val = next(iter(found))
+            else:
+                asset_list_val = ""
+
             rows.append({
                 "VM Name":        display["name"],
                 "Hostname":       display["hostname"],
@@ -453,6 +480,7 @@ def create_app() -> Flask:
                 "Matched MACs":   " | ".join(m for m, _ in all_matches),
                 "Mapped IPs":     " | ".join(r["ip_address"]     for _, r in all_matches if r["ip_address"]),
                 "Data Retrieved": " | ".join(dict.fromkeys(r["data_retrieved"] for _, r in all_matches if r["data_retrieved"])),
+                "Asset List":     asset_list_val,
                 "Power State":    display["power_state"],
                 "Source Host":    display.get("source_host", ""),
             })
@@ -517,6 +545,30 @@ def create_app() -> Flask:
         flash(f"All {count} MAC mapping file(s) cleared.", "info")
         return redirect(url_for("settings"))
 
+    @app.route("/settings/save-asset-api", methods=["POST"])
+    def save_asset_api():
+        base_url = request.form.get("asset_api_url", "").strip().rstrip("/")
+        username = request.form.get("asset_api_user", "").strip()
+        password = request.form.get("asset_api_pass", "")
+
+        if not base_url or not username:
+            flash("API URL and username are required.", "error")
+            return redirect(url_for("settings"))
+
+        existing = asset_api.load_config()
+        if not password and existing.get("password"):
+            password = existing["password"]  # keep existing password if field left blank
+
+        asset_api.save_config(base_url, username, password)
+        flash("Asset Inventory API settings saved. Cache will refresh on next MAC Lookup.", "success")
+        return redirect(url_for("settings"))
+
+    @app.route("/settings/test-asset-api", methods=["POST"])
+    def test_asset_api():
+        from flask import jsonify
+        ok, msg = asset_api.test_connection()
+        return jsonify({"ok": ok, "message": msg})
+
     # -----------------------------------------------------------------------
     # MAC Address Lookup — compare VM MACs against uploaded IP mapping
     # -----------------------------------------------------------------------
@@ -578,6 +630,10 @@ def create_app() -> Flask:
         meta    = mac_lookup_store.load_meta()
         index   = mac_lookup_store.build_index(mapping)
 
+        # Pre-fetch all asset IPs once (cached 10 min) — avoids per-VM API calls
+        asset_configured = asset_api.is_configured()
+        asset_ip_map     = asset_api.fetch_all_asset_ips() if asset_configured else {}
+
         raw_vms = database.load_latest_inventory_all_hosts()
         if not raw_vms:
             raw_vms = cache_store.load_all_hosts()
@@ -600,6 +656,27 @@ def create_app() -> Flask:
             display["mapped_ips"]        = " | ".join(r["ip_address"]     for _, r in all_matches if r["ip_address"])
             display["data_retrieved"]    = " | ".join(dict.fromkeys(r["data_retrieved"] for _, r in all_matches if r["data_retrieved"]))
             display["is_matched"]        = bool(all_matches)
+
+            # Asset Inventory check: compare VM IPs against asset API
+            if asset_configured:
+                vm_ips = [ip.strip() for ip in display["ip_addresses"].split(" | ")
+                          if ip.strip() and ip.strip() != "Not Available"]
+                found: set = set()
+                for ip in vm_ips:
+                    label = asset_ip_map.get(ip.lower())
+                    if label == "Both":
+                        found.update({"Asset Inventory", "Ext. Asset Inventory"})
+                    elif label:
+                        found.add(label)
+                if not found:
+                    display["asset_list"] = "—"
+                elif len(found) == 2:
+                    display["asset_list"] = "Both"
+                else:
+                    display["asset_list"] = next(iter(found))
+            else:
+                display["asset_list"] = ""
+
             results.append(display)
 
         matched_count   = sum(1 for r in results if r["is_matched"])
@@ -613,6 +690,7 @@ def create_app() -> Flask:
             matched=matched_count,
             unmatched=unmatched_count,
             has_mapping=bool(mapping),
+            asset_configured=asset_configured,
         )
 
     return app

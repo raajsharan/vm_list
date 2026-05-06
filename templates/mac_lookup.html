@@ -104,7 +104,12 @@
           <th class="sortable" data-col="6">MAC Address(es) <span class="sort-arrow">↕</span></th>
           <th class="sortable col-highlight" data-col="7">Mapped IP(s) <span class="sort-arrow">↕</span></th>
           <th class="sortable col-highlight" data-col="8">Data Retrieved <span class="sort-arrow">↕</span></th>
+          {% if asset_configured %}
+          <th class="sortable col-highlight" data-col="9">Asset List <span class="sort-arrow">↕</span></th>
+          <th class="sortable" data-col="10">Power State <span class="sort-arrow">↕</span></th>
+          {% else %}
           <th class="sortable" data-col="9">Power State <span class="sort-arrow">↕</span></th>
+          {% endif %}
         </tr>
       </thead>
       <tbody id="mlBody">
@@ -153,6 +158,19 @@
           <td class="col-highlight {% if not vm.data_retrieved %}na{% endif %}">
             {{ vm.data_retrieved or '—' }}
           </td>
+          {% if asset_configured %}
+          <td class="col-highlight">
+            {% if vm.asset_list == 'Asset Inventory' %}
+              <span class="asset-badge asset-badge--main">Asset Inventory</span>
+            {% elif vm.asset_list == 'Ext. Asset Inventory' %}
+              <span class="asset-badge asset-badge--ext">Ext. Asset Inventory</span>
+            {% elif vm.asset_list == 'Both' %}
+              <span class="asset-badge asset-badge--both">Both</span>
+            {% else %}
+              <span class="asset-badge asset-badge--none">—</span>
+            {% endif %}
+          </td>
+          {% endif %}
           <td>
             <span class="power-badge power-badge--{{ vm.power_state }}">{{ vm.power_state }}</span>
           </td>

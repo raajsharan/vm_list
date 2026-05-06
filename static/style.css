@@ -2336,3 +2336,54 @@ tr.ml-unmatched td:first-child {
   min-width: 42px;
   text-align: right;
 }
+
+/* ── Asset Inventory badges (MAC Lookup page) ── */
+.asset-badge {
+  display: inline-block;
+  padding: .18rem .55rem;
+  border-radius: var(--radius);
+  font-family: var(--mono);
+  font-size: .67rem;
+  font-weight: 500;
+  white-space: nowrap;
+  letter-spacing: .02em;
+}
+.asset-badge--main {
+  background: rgba(62,207,142,.12);
+  color: var(--green);
+  border: 1px solid rgba(62,207,142,.25);
+}
+.asset-badge--ext {
+  background: rgba(79,163,224,.12);
+  color: var(--accent);
+  border: 1px solid rgba(79,163,224,.25);
+}
+.asset-badge--both {
+  background: rgba(240,192,64,.12);
+  color: var(--yellow);
+  border: 1px solid rgba(240,192,64,.25);
+}
+.asset-badge--none {
+  color: var(--text-dim);
+}
+
+/* ── Asset API settings card ── */
+.asset-api-status {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  padding: .5rem .75rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: .78rem;
+  margin-bottom: .5rem;
+}
+
+.asset-test-result {
+  font-size: .78rem;
+  font-family: var(--mono);
+  transition: color .2s;
+}
+.asset-test-result--ok  { color: var(--green); }
+.asset-test-result--err { color: var(--red); }

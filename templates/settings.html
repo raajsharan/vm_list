@@ -179,6 +179,87 @@
         </div>
       </div>
 
+      <!-- Asset Inventory API card -->
+      <div class="card" style="margin-top:1rem">
+        <div class="card-header">
+          <span class="card-label">03</span>
+          <h2 class="card-title">Asset Inventory API</h2>
+        </div>
+        <p class="hero-sub" style="margin:.5rem 0 1rem">
+          Connect to your internal Asset Inventory to cross-reference VM IPs on the
+          <a href="{{ url_for('mac_lookup') }}" class="accent">MAC Lookup</a> page.
+          IPs will be matched against both <strong>Asset Inventory</strong> and
+          <strong>Ext. Asset Inventory</strong>.
+        </p>
+
+        {% if asset_api_cfg.get('base_url') %}
+        <div class="asset-api-status">
+          <span class="dot dot--green"></span>
+          Configured — <span class="accent">{{ asset_api_cfg.base_url }}</span>
+          &nbsp;·&nbsp; user: <code>{{ asset_api_cfg.get('username', '') }}</code>
+          {% if asset_api_cfg.get('has_password') %}
+            &nbsp;·&nbsp; <span style="color:var(--text-muted)">password saved</span>
+          {% endif %}
+        </div>
+        {% endif %}
+
+        <form method="POST" action="{{ url_for('save_asset_api') }}" class="settings-form" style="margin-top:.75rem">
+
+          <div class="setting-row">
+            <div class="setting-info">
+              <div class="setting-name">API Base URL</div>
+              <div class="setting-desc">e.g. <code>http://192.168.28.94:5000</code></div>
+            </div>
+            <div class="setting-control">
+              <input type="url" name="asset_api_url" class="form-input setting-input"
+                     value="{{ asset_api_cfg.get('base_url', '') }}"
+                     placeholder="http://192.168.28.94:5000" required />
+            </div>
+          </div>
+
+          <div class="setting-divider"></div>
+
+          <div class="setting-row">
+            <div class="setting-info">
+              <div class="setting-name">Username</div>
+              <div class="setting-desc">Asset Inventory login username</div>
+            </div>
+            <div class="setting-control">
+              <input type="text" name="asset_api_user" class="form-input setting-input"
+                     value="{{ asset_api_cfg.get('username', '') }}"
+                     placeholder="admin" autocomplete="off" required />
+            </div>
+          </div>
+
+          <div class="setting-divider"></div>
+
+          <div class="setting-row">
+            <div class="setting-info">
+              <div class="setting-name">Password</div>
+              <div class="setting-desc">
+                {% if asset_api_cfg.get('has_password') %}
+                  Leave blank to keep the saved password.
+                {% else %}
+                  Asset Inventory login password.
+                {% endif %}
+              </div>
+            </div>
+            <div class="setting-control">
+              <input type="password" name="asset_api_pass" class="form-input setting-input"
+                     placeholder="{% if asset_api_cfg.get('has_password') %}●●●●●●●● (saved){% else %}Enter password{% endif %}"
+                     autocomplete="new-password" />
+            </div>
+          </div>
+
+          <div class="settings-form-footer" style="gap:.75rem;align-items:center">
+            <button type="submit" class="btn btn--primary">Save API Settings</button>
+            <button type="button" class="btn btn--secondary" id="testAssetApiBtn">Test Connection</button>
+            <span class="asset-test-result" id="assetTestResult"></span>
+          </div>
+
+        </form>
+      </div>
+
       <!-- Restart instructions card -->
       <div class="card card--info" style="margin-top:1rem">
         <div class="card-header">
@@ -336,5 +417,29 @@ python3 app.py --port 8080 --debug</pre>
   portInput.addEventListener('input', () => {
     portInput.classList.toggle('input--changed', portInput.value !== originalPort);
   });
+
+  // Asset API — Test Connection
+  const testBtn    = document.getElementById('testAssetApiBtn');
+  const testResult = document.getElementById('assetTestResult');
+  if (testBtn) {
+    testBtn.addEventListener('click', async function () {
+      testBtn.disabled = true;
+      testBtn.textContent = 'Testing…';
+      testResult.className = 'asset-test-result';
+      testResult.textContent = '';
+      try {
+        const resp = await fetch('{{ url_for("test_asset_api") }}', { method: 'POST' });
+        const data = await resp.json();
+        testResult.textContent = data.message;
+        testResult.className = 'asset-test-result ' + (data.ok ? 'asset-test-result--ok' : 'asset-test-result--err');
+      } catch (e) {
+        testResult.textContent = 'Request failed: ' + e.message;
+        testResult.className = 'asset-test-result asset-test-result--err';
+      } finally {
+        testBtn.disabled = false;
+        testBtn.textContent = 'Test Connection';
+      }
+    });
+  }
 </script>
 {% endblock %}
