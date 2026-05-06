@@ -339,11 +339,87 @@ def create_app() -> Flask:
         return redirect(url_for("credentials"))
 
     # -----------------------------------------------------------------------
-    # Dashboard — consolidated multi-host view
+    # Dashboard — asset coverage statistics (new)
     # -----------------------------------------------------------------------
 
     @app.route("/dashboard", methods=["GET"])
     def dashboard():
+        raw_vms = database.load_latest_inventory_all_hosts()
+        if not raw_vms:
+            raw_vms = cache_store.load_all_hosts()
+
+        asset_configured = asset_api.is_configured()
+        asset_ip_map     = asset_api.fetch_all_asset_ips() if asset_configured else {}
+        creds            = credential_store.load_all()
+
+        overall  = {"total": 0, "asset_inv": 0, "ext_asset_inv": 0, "both": 0, "not_found": 0}
+        vc_map:   dict = {}
+        os_map:   dict = {}
+        pwr_map   = {"poweredOn": 0, "poweredOff": 0, "suspended": 0}
+
+        for vm in raw_vms:
+            display  = data_processor.normalise_for_display([vm])[0]
+            overall["total"] += 1
+
+            # Power state
+            power = vm.get("power_state", "poweredOff")
+            pwr_map[power] = pwr_map.get(power, 0) + 1
+
+            # OS type
+            os_type = display.get("os_type", "Unknown")
+            if os_type == "Not Available":
+                os_type = "Unknown"
+            os_map[os_type] = os_map.get(os_type, 0) + 1
+
+            # vCenter
+            vcenter = vm.get("source_host", "Unknown")
+            if vcenter not in vc_map:
+                vc_map[vcenter] = {"total": 0, "asset_inv": 0, "ext_asset_inv": 0, "both": 0, "not_found": 0}
+            vc_map[vcenter]["total"] += 1
+
+            # Asset coverage
+            if asset_configured:
+                vm_ips = [ip.strip() for ip in display["ip_addresses"].split(" | ")
+                          if ip.strip() and ip.strip() != "Not Available"]
+                found: set = set()
+                for ip in vm_ips:
+                    label = asset_ip_map.get(ip.lower())
+                    if label == "Both":
+                        found.update({"Asset Inventory", "Ext. Asset Inventory"})
+                    elif label:
+                        found.add(label)
+
+                if "Asset Inventory" in found and "Ext. Asset Inventory" in found:
+                    status = "both"
+                elif "Asset Inventory" in found:
+                    status = "asset_inv"
+                elif "Ext. Asset Inventory" in found:
+                    status = "ext_asset_inv"
+                else:
+                    status = "not_found"
+
+                overall[status]          += 1
+                vc_map[vcenter][status]  += 1
+
+        sorted_vcenters = sorted(vc_map.items(), key=lambda x: x[1]["total"], reverse=True)
+        sorted_os       = sorted(os_map.items(), key=lambda x: x[1], reverse=True)[:12]
+
+        return render_template(
+            "asset_dashboard.html",
+            stats=overall,
+            vcenter_stats=sorted_vcenters,
+            os_stats=sorted_os,
+            power_stats=pwr_map,
+            asset_configured=asset_configured,
+            creds=creds,
+        )
+
+    # -----------------------------------------------------------------------
+    # All VMs — consolidated multi-host VM list (formerly "Dashboard")
+    # -----------------------------------------------------------------------
+
+    @app.route("/all-vms", methods=["GET"])
+    def all_vms():
         creds     = credential_store.load_all()
         running   = scheduler.active_hosts()
         next_runs = {c["host"]: scheduler.format_next_run(c["host"]) for c in creds}
@@ -353,7 +429,6 @@ def create_app() -> Flask:
             raw_vms = cache_store.load_all_hosts()
         vms     = data_processor.normalise_for_display(raw_vms)
 
-        # Per-host summary derived from the consolidated records
         host_stats: dict = {}
         for vm in raw_vms:
             h = vm["source_host"]
@@ -379,7 +454,7 @@ def create_app() -> Flask:
         raw = database.load_latest_inventory_all_hosts()
         if not raw:
             flash("No consolidated data to export. Run discovery on at least one host.", "warning")
-            return redirect(url_for("dashboard"))
+            return redirect(url_for("all_vms"))
         rows = data_processor.to_csv_rows_consolidated(raw)
         output = io.StringIO()
         writer = csv.DictWriter(output, fieldnames=rows[0].keys())
@@ -396,7 +471,7 @@ def create_app() -> Flask:
         raw = database.load_latest_inventory_all_hosts()
         if not raw:
             flash("No consolidated data to export.", "warning")
-            return redirect(url_for("dashboard"))
+            return redirect(url_for("all_vms"))
         return Response(
             json.dumps(raw, indent=2, default=str),
             mimetype="application/json",

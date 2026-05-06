@@ -1,0 +1,400 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — VMware Inventory{% endblock %}
+
+{% block content %}
+<div class="page-asset-dash">
+
+  <!-- ── Page header ── -->
+  <div class="inventory-header">
+    <div>
+      <div class="page-label">ASSET INTELLIGENCE</div>
+      <h1 class="page-title">Inventory <span class="accent">Dashboard</span></h1>
+      <p class="hero-sub" style="margin-top:.4rem">
+        VM coverage across Asset Inventory and Ext. Asset Inventory
+        &nbsp;·&nbsp; {{ stats.total }} VMs &nbsp;·&nbsp; {{ creds|length }} source{{ 's' if creds|length != 1 else '' }}
+      </p>
+    </div>
+    <div class="inventory-actions">
+      <a href="{{ url_for('mac_lookup') }}" class="btn btn--secondary">→ MAC Lookup</a>
+      <a href="{{ url_for('all_vms') }}"    class="btn btn--outline">All VMs</a>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- TOP STAT CARDS                                            -->
+  <!-- ══════════════════════════════════════════════════════════ -->
+  {% set t = stats.total %}
+  {% set pct_ai  = ((stats.asset_inv  + stats.both) / t * 100)|round|int if t > 0 else 0 %}
+  {% set pct_ext = ((stats.ext_asset_inv + stats.both) / t * 100)|round|int if t > 0 else 0 %}
+  {% set pct_nf  = (stats.not_found   / t * 100)|round|int if t > 0 else 0 %}
+  {% set pct_both= (stats.both / t * 100)|round|int if t > 0 else 0 %}
+
+  <div class="adash-cards">
+
+    <div class="adash-card">
+      <div class="adc-top">
+        <div class="adc-icon adc-icon--accent">⊞</div>
+        <div class="adc-trend adc-trend--neutral">{{ creds|length }} source{{ 's' if creds|length != 1 else '' }}</div>
+      </div>
+      <div class="adc-val">{{ t }}</div>
+      <div class="adc-label">Total VMs Discovered</div>
+      <div class="adc-bar" style="--bar-w:100%;--bar-c:var(--accent)"></div>
+    </div>
+
+    <div class="adash-card">
+      <div class="adc-top">
+        <div class="adc-icon adc-icon--green">◈</div>
+        <div class="adc-trend adc-trend--green">{{ pct_ai }}% of total</div>
+      </div>
+      <div class="adc-val" style="color:var(--green)">{{ stats.asset_inv + stats.both }}</div>
+      <div class="adc-label">In Asset Inventory</div>
+      <div class="adc-bar" style="--bar-w:{{ pct_ai }}%;--bar-c:var(--green)"></div>
+    </div>
+
+    <div class="adash-card">
+      <div class="adc-top">
+        <div class="adc-icon adc-icon--accent">◈</div>
+        <div class="adc-trend adc-trend--accent">{{ pct_ext }}% of total</div>
+      </div>
+      <div class="adc-val" style="color:var(--accent)">{{ stats.ext_asset_inv + stats.both }}</div>
+      <div class="adc-label">In Ext. Asset Inventory</div>
+      <div class="adc-bar" style="--bar-w:{{ pct_ext }}%;--bar-c:var(--accent)"></div>
+    </div>
+
+    <div class="adash-card">
+      <div class="adc-top">
+        <div class="adc-icon adc-icon--yellow">◈</div>
+        <div class="adc-trend adc-trend--yellow">{{ pct_both }}% of total</div>
+      </div>
+      <div class="adc-val" style="color:var(--yellow)">{{ stats.both }}</div>
+      <div class="adc-label">In Both Lists</div>
+      <div class="adc-bar" style="--bar-w:{{ pct_both }}%;--bar-c:var(--yellow)"></div>
+    </div>
+
+    <div class="adash-card">
+      <div class="adc-top">
+        <div class="adc-icon adc-icon--red">◈</div>
+        <div class="adc-trend adc-trend--red">{{ pct_nf }}% uncovered</div>
+      </div>
+      <div class="adc-val" style="color:var(--red)">{{ stats.not_found }}</div>
+      <div class="adc-label">Not in Any List</div>
+      <div class="adc-bar" style="--bar-w:{{ pct_nf }}%;--bar-c:var(--red)"></div>
+    </div>
+
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- CHARTS ROW                                                -->
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <div class="adash-charts-row">
+
+    <!-- VMs by vCenter — horizontal bar chart -->
+    <div class="card adash-chart-card" style="flex:3">
+      <div class="card-header" style="margin-bottom:.75rem">
+        <h2 class="card-title">VMs by vCenter / Source</h2>
+        <div class="adash-legend">
+          <span class="adl-dot" style="background:rgba(79,163,224,.7)"></span><span>Total VMs</span>
+          {% if asset_configured %}
+          <span class="adl-dot" style="background:rgba(62,207,142,.7)"></span><span>Asset Inventory</span>
+          <span class="adl-dot" style="background:rgba(240,192,64,.7)"></span><span>Ext. Asset Inv.</span>
+          {% endif %}
+        </div>
+      </div>
+      <div class="adash-chart-scroll">
+        <canvas id="vcenterChart"></canvas>
+      </div>
+    </div>
+
+    <!-- Coverage donut chart -->
+    <div class="card adash-chart-card" style="flex:1;min-width:230px">
+      <div class="card-header" style="margin-bottom:.5rem">
+        <h2 class="card-title">Coverage Breakdown</h2>
+      </div>
+
+      {% if asset_configured %}
+      <div class="adash-donut-wrap">
+        <canvas id="coverageChart"></canvas>
+        <div class="adash-donut-center">
+          <div class="adash-donut-pct">{{ 100 - pct_nf }}%</div>
+          <div class="adash-donut-sub">covered</div>
+        </div>
+      </div>
+      <div class="adash-donut-legend">
+        <div class="addl-row">
+          <span class="addl-dot" style="background:var(--green)"></span>
+          <span class="addl-label">Asset Inventory</span>
+          <span class="addl-count">{{ stats.asset_inv }}</span>
+        </div>
+        <div class="addl-row">
+          <span class="addl-dot" style="background:var(--accent)"></span>
+          <span class="addl-label">Ext. Asset Inv.</span>
+          <span class="addl-count">{{ stats.ext_asset_inv }}</span>
+        </div>
+        <div class="addl-row">
+          <span class="addl-dot" style="background:var(--yellow)"></span>
+          <span class="addl-label">Both Lists</span>
+          <span class="addl-count">{{ stats.both }}</span>
+        </div>
+        <div class="addl-row">
+          <span class="addl-dot" style="background:var(--text-dim)"></span>
+          <span class="addl-label">Not Found</span>
+          <span class="addl-count">{{ stats.not_found }}</span>
+        </div>
+      </div>
+      {% else %}
+      <div class="empty-state" style="margin-top:1rem;padding:1.5rem">
+        <div class="empty-icon" style="font-size:1.5rem">◈</div>
+        <p style="font-size:.8rem">Asset Inventory API not configured.</p>
+        <a href="{{ url_for('settings') }}" class="btn btn--outline btn--xs" style="margin-top:.75rem">
+          Configure in Settings
+        </a>
+      </div>
+      {% endif %}
+    </div>
+
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- BOTTOM ROW: vCenter table + OS + Power                   -->
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <div class="adash-bottom-row">
+
+    <!-- vCenter breakdown table -->
+    <div class="card" style="flex:3;overflow:hidden">
+      <div class="card-header" style="margin-bottom:.5rem">
+        <h2 class="card-title">vCenter Coverage Breakdown</h2>
+        <span style="font-size:.72rem;color:var(--text-muted)">{{ vcenter_stats|length }} sources</span>
+      </div>
+      <div style="max-height:380px;overflow-y:auto">
+        <table class="vm-table">
+          <thead>
+            <tr>
+              <th>vCenter / Source</th>
+              <th style="text-align:right">Total</th>
+              {% if asset_configured %}
+              <th style="text-align:right;color:var(--green)">Asset Inv.</th>
+              <th style="text-align:right;color:var(--accent)">Ext. Asset</th>
+              <th style="text-align:right;color:var(--yellow)">Both</th>
+              <th style="text-align:right;color:var(--red)">Not Found</th>
+              <th>Coverage</th>
+              {% endif %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for vc, s in vcenter_stats %}
+            {% set covered = s.asset_inv + s.ext_asset_inv + s.both %}
+            {% set pct_c   = ((covered / s.total * 100)|round|int) if s.total > 0 else 0 %}
+            <tr>
+              <td>
+                <span class="accent" style="font-family:var(--mono);font-size:.76rem">{{ vc }}</span>
+              </td>
+              <td style="text-align:right;font-family:var(--mono)">{{ s.total }}</td>
+              {% if asset_configured %}
+              <td style="text-align:right;color:var(--green);font-family:var(--mono)">{{ s.asset_inv }}</td>
+              <td style="text-align:right;color:var(--accent);font-family:var(--mono)">{{ s.ext_asset_inv }}</td>
+              <td style="text-align:right;color:var(--yellow);font-family:var(--mono)">{{ s.both }}</td>
+              <td style="text-align:right;color:var(--red);font-family:var(--mono)">{{ s.not_found }}</td>
+              <td>
+                <div class="adash-cov-wrap">
+                  <div class="adash-cov-bar">
+                    <div class="adash-cov-fill" style="width:{{ pct_c }}%"></div>
+                  </div>
+                  <span class="adash-cov-pct">{{ pct_c }}%</span>
+                </div>
+              </td>
+              {% endif %}
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Right column: OS dist + Power state -->
+    <div class="adash-right-col">
+
+      <!-- OS Distribution -->
+      <div class="card">
+        <div class="card-header" style="margin-bottom:.75rem">
+          <h2 class="card-title">OS Distribution</h2>
+          <span style="font-size:.7rem;color:var(--text-muted)">Top {{ os_stats|length }}</span>
+        </div>
+        <div style="height:220px;position:relative">
+          <canvas id="osChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Power State -->
+      <div class="card" style="margin-top:1rem">
+        <div class="card-header" style="margin-bottom:.75rem">
+          <h2 class="card-title">Power State</h2>
+        </div>
+        <div class="adash-pwr-list">
+          {% set pw_on  = power_stats.get('poweredOn', 0) %}
+          {% set pw_off = power_stats.get('poweredOff', 0) %}
+          {% set pw_sus = power_stats.get('suspended', 0) %}
+          {% for label, count, cls in [
+              ('Powered On',  pw_on,  'poweredOn'),
+              ('Powered Off', pw_off, 'poweredOff'),
+              ('Suspended',   pw_sus, 'suspended'),
+          ] %}
+          {% set pct_pw = ((count / t * 100)|round|int) if t > 0 else 0 %}
+          <div class="adash-pwr-item">
+            <div class="adash-pwr-meta">
+              <span class="power-badge power-badge--{{ cls }}">{{ label }}</span>
+              <span class="adash-pwr-num">{{ count }}</span>
+            </div>
+            <div class="adash-pwr-bar">
+              <div class="adash-pwr-fill adash-pwr-fill--{{ cls }}" style="width:{{ pct_pw }}%"></div>
+            </div>
+            <span class="adash-pwr-pct">{{ pct_pw }}%</span>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+(function () {
+
+  const C = {
+    green:  '#3ecf8e', greenA:  'rgba(62,207,142,',
+    accent: '#4fa3e0', accentA: 'rgba(79,163,224,',
+    yellow: '#f0c040', yellowA: 'rgba(240,192,64,',
+    red:    '#e05470', redA:    'rgba(224,84,112,',
+    dim:    '#3a4260', dimA:    'rgba(58,66,96,',
+    border: '#1e2535',
+    muted:  '#5a6480',
+  };
+
+  Chart.defaults.color       = C.muted;
+  Chart.defaults.borderColor = C.border;
+  Chart.defaults.font.family = "'IBM Plex Mono','Courier New',monospace";
+  Chart.defaults.font.size   = 11;
+
+  // ── vCenter horizontal bar chart ────────────────────────
+  const vcData   = {{ vcenter_stats | tojson }};
+  const vcLabels = vcData.map(([vc]) => vc.length > 24 ? vc.slice(0,22)+'…' : vc);
+  const vcTotal  = vcData.map(([,s]) => s.total);
+
+  // Dynamically set canvas height based on row count
+  const vcCanvas = document.getElementById('vcenterChart');
+  const rowH     = 28;
+  vcCanvas.parentElement.style.height = Math.max(300, vcLabels.length * rowH + 40) + 'px';
+
+  const vcDatasets = [
+    {
+      label: 'Total VMs',
+      data:  vcTotal,
+      backgroundColor: C.accentA + '.35)',
+      borderColor:     C.accent,
+      borderWidth: 1, borderRadius: 3,
+    },
+    {% if asset_configured %}
+    {
+      label: 'Asset Inventory',
+      data:  vcData.map(([,s]) => s.asset_inv + s.both),
+      backgroundColor: C.greenA + '.45)',
+      borderColor:     C.green,
+      borderWidth: 1, borderRadius: 3,
+    },
+    {
+      label: 'Ext. Asset Inv.',
+      data:  vcData.map(([,s]) => s.ext_asset_inv + s.both),
+      backgroundColor: C.yellowA + '.35)',
+      borderColor:     C.yellow,
+      borderWidth: 1, borderRadius: 3,
+    },
+    {% endif %}
+  ];
+
+  new Chart(vcCanvas, {
+    type: 'bar',
+    data: { labels: vcLabels, datasets: vcDatasets },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'top', labels: { boxWidth: 10, padding: 14 } },
+        tooltip: { mode: 'index', intersect: false },
+      },
+      scales: {
+        x: { grid: { color: C.border }, beginAtZero: true, ticks: { precision: 0 } },
+        y: { grid: { color: C.border + '88' }, ticks: { font: { size: 10 } } },
+      },
+    },
+  });
+
+  // ── Coverage donut ───────────────────────────────────────
+  {% if asset_configured %}
+  const covCanvas = document.getElementById('coverageChart');
+  new Chart(covCanvas, {
+    type: 'doughnut',
+    data: {
+      labels: ['Asset Inventory','Ext. Asset Inv.','Both','Not Found'],
+      datasets: [{
+        data: [{{ stats.asset_inv }}, {{ stats.ext_asset_inv }}, {{ stats.both }}, {{ stats.not_found }}],
+        backgroundColor: [C.greenA+'.75)',C.accentA+'.75)',C.yellowA+'.75)',C.dimA+'.8)'],
+        borderColor:     [C.green, C.accent, C.yellow, C.border],
+        borderWidth: 2,
+        hoverOffset: 8,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      cutout: '70%',
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              const total = {{ stats.total }};
+              const pct   = total ? Math.round(ctx.parsed / total * 100) : 0;
+              return ` ${ctx.label}: ${ctx.parsed} (${pct}%)`;
+            },
+          },
+        },
+      },
+    },
+  });
+  {% endif %}
+
+  // ── OS distribution horizontal bar chart ───────────────
+  const osData   = {{ os_stats | tojson }};
+  const osCanvas = document.getElementById('osChart');
+  new Chart(osCanvas, {
+    type: 'bar',
+    data: {
+      labels: osData.map(([os]) => os.length > 22 ? os.slice(0,20)+'…' : os),
+      datasets: [{
+        label: 'VMs',
+        data:  osData.map(([,c]) => c),
+        backgroundColor: C.accentA + '.4)',
+        borderColor:     C.accent,
+        borderWidth: 1, borderRadius: 3,
+      }],
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { mode: 'index', intersect: false } },
+      scales: {
+        x: { grid: { color: C.border }, beginAtZero: true, ticks: { precision: 0 } },
+        y: { grid: { display: false }, ticks: { font: { size: 10 } } },
+      },
+    },
+  });
+
+})();
+</script>
+{% endblock %}
