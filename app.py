@@ -40,6 +40,40 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
+# Helper: check a set of IPs against the asset IP map
+# ---------------------------------------------------------------------------
+
+def _check_asset_ips(mapped_ips_str: str, vm_ips_str: str, asset_ip_map: dict) -> str:
+    """
+    Checks mapped IPs (from the MAC→IP file) first, then VM IPs from VMware.
+    Returns "Asset Inventory", "Ext. Asset Inventory", "Both", or "—".
+    """
+    def _parse(raw: str) -> list[str]:
+        return [ip.strip() for ip in raw.split(" | ")
+                if ip.strip() and ip.strip() != "Not Available"]
+
+    ips_to_check = _parse(mapped_ips_str) + _parse(vm_ips_str)
+    # Deduplicate, preserve order
+    seen: set = set()
+    found: set = set()
+    for ip in ips_to_check:
+        key = ip.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        label = asset_ip_map.get(key)
+        if label == "Both":
+            found.update({"Asset Inventory", "Ext. Asset Inventory"})
+        elif label:
+            found.add(label)
+    if not found:
+        return "—"
+    if len(found) == 2:
+        return "Both"
+    return next(iter(found))
+
+
+# ---------------------------------------------------------------------------
 # App factory
 # ---------------------------------------------------------------------------
 def create_app() -> Flask:
@@ -451,22 +485,10 @@ def create_app() -> Flask:
             display = data_processor.normalise_for_display([vm])[0]
 
             # Asset list for CSV
+            mapped_ips_str = " | ".join(r["ip_address"] for _, r in all_matches if r["ip_address"])
             if asset_configured:
-                vm_ips = [ip.strip() for ip in display["ip_addresses"].split(" | ")
-                          if ip.strip() and ip.strip() != "Not Available"]
-                found: set = set()
-                for ip in vm_ips:
-                    label = asset_ip_map.get(ip.lower())
-                    if label == "Both":
-                        found.update({"Asset Inventory", "Ext. Asset Inventory"})
-                    elif label:
-                        found.add(label)
-                if not found:
-                    asset_list_val = "Not Found"
-                elif len(found) == 2:
-                    asset_list_val = "Both"
-                else:
-                    asset_list_val = next(iter(found))
+                result_label = _check_asset_ips(mapped_ips_str, display["ip_addresses"], asset_ip_map)
+                asset_list_val = result_label if result_label != "—" else "Not Found"
             else:
                 asset_list_val = ""
 
@@ -665,23 +687,13 @@ def create_app() -> Flask:
             display["data_retrieved"]    = " | ".join(dict.fromkeys(r["data_retrieved"] for _, r in all_matches if r["data_retrieved"]))
             display["is_matched"]        = bool(all_matches)
 
-            # Asset Inventory check: compare VM IPs against asset API
+            # Asset Inventory check: compare Mapped IPs (from MAC file) + VM IPs (VMware)
             if asset_configured:
-                vm_ips = [ip.strip() for ip in display["ip_addresses"].split(" | ")
-                          if ip.strip() and ip.strip() != "Not Available"]
-                found: set = set()
-                for ip in vm_ips:
-                    label = asset_ip_map.get(ip.lower())
-                    if label == "Both":
-                        found.update({"Asset Inventory", "Ext. Asset Inventory"})
-                    elif label:
-                        found.add(label)
-                if not found:
-                    display["asset_list"] = "—"
-                elif len(found) == 2:
-                    display["asset_list"] = "Both"
-                else:
-                    display["asset_list"] = next(iter(found))
+                display["asset_list"] = _check_asset_ips(
+                    display.get("mapped_ips", ""),
+                    display.get("ip_addresses", ""),
+                    asset_ip_map,
+                )
             else:
                 display["asset_list"] = ""
 
