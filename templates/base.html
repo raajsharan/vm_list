@@ -1,9 +1,11 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{% block title %}VMware Inventory{% endblock %}</title>
+  <!-- Apply saved theme immediately — before CSS paint — to prevent flash -->
+  <script>(function(){var t=localStorage.getItem('vmw-theme')||'dark';document.documentElement.setAttribute('data-theme',t);}());</script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
@@ -25,6 +27,10 @@
         <a href="{{ url_for('esxi_topology') }}" class="nav-link">ESXi HOSTS</a>
         <a href="{{ url_for('mac_lookup') }}" class="nav-link">MAC LOOKUP</a>
         <a href="{{ url_for('settings') }}" class="nav-link">SETTINGS</a>
+        <button class="theme-toggle" id="themeToggle" aria-label="Toggle light/dark theme" title="Toggle theme">
+          <span class="theme-icon-dark">☀</span>
+          <span class="theme-icon-light">☾</span>
+        </button>
       </nav>
     </div>
   </header>
@@ -80,6 +86,20 @@
   </footer>
 
   {% block scripts %}{% endblock %}
+
+  <!-- Theme toggle -->
+  <script>
+  (function () {
+    var btn = document.getElementById('themeToggle');
+    if (!btn) return;
+    btn.addEventListener('click', function () {
+      var html  = document.documentElement;
+      var next  = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+      html.setAttribute('data-theme', next);
+      localStorage.setItem('vmw-theme', next);
+    });
+  })();
+  </script>
 
   <!-- Global IP overflow popup -->
   <div class="ip-popup" id="ipPopup" role="tooltip" aria-hidden="true"></div>

@@ -295,14 +295,15 @@
 <script>
 (function () {
 
+  const _cs = getComputedStyle(document.documentElement);
   const C = {
     green:  '#3ecf8e', greenA:  'rgba(62,207,142,',
     accent: '#4fa3e0', accentA: 'rgba(79,163,224,',
     yellow: '#f0c040', yellowA: 'rgba(240,192,64,',
     red:    '#e05470', redA:    'rgba(224,84,112,',
     dim:    '#3a4260', dimA:    'rgba(58,66,96,',
-    border: '#1e2535',
-    muted:  '#5a6480',
+    border: _cs.getPropertyValue('--border').trim()     || '#1e2535',
+    muted:  _cs.getPropertyValue('--text-muted').trim() || '#5a6480',
   };
 
   Chart.defaults.color       = C.muted;
