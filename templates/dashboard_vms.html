@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} — VMware Inventory{% endblock %}
+
+{% block content %}
+<div class="page-asset-dash">
+
+  <!-- ── Page header ── -->
+  <div class="inventory-header">
+    <div>
+      <div class="page-label">DASHBOARD &rsaquo; VM DETAIL</div>
+      <h1 class="page-title">{{ title }}</h1>
+      <p class="hero-sub" style="margin-top:.4rem">{{ description }}
+        &nbsp;·&nbsp; <span class="accent" style="font-family:var(--mono)">{{ total }}</span> VMs
+      </p>
+    </div>
+    <div class="inventory-actions">
+      <a href="{{ url_for('dashboard') }}" class="btn btn--secondary">← Back to Dashboard</a>
+      <a href="{{ url_for('all_vms') }}" class="btn btn--outline">All VMs</a>
+    </div>
+  </div>
+
+  <!-- ── Filter bar ── -->
+  <div class="filter-bar" style="margin-bottom:1rem">
+    <div class="filter-search">
+      <span class="search-icon">⌕</span>
+      <input id="vmSearch" type="text" class="search-input" placeholder="Filter by name, hostname, IP, OS…" autocomplete="off" />
+    </div>
+    <div class="filter-chips">
+      <span class="stats-label">{{ total }} VM{{ 's' if total != 1 else '' }}</span>
+    </div>
+  </div>
+
+  <!-- ── VM table ── -->
+  {% if vms %}
+  <div class="card" style="overflow:hidden;padding:0">
+    <div style="overflow-x:auto">
+      <table class="vm-table" id="vmsTable">
+        <thead>
+          <tr>
+            <th class="sortable" data-col="0">VM Name <span class="sort-icon">⇅</span></th>
+            <th class="sortable" data-col="1">Hostname <span class="sort-icon">⇅</span></th>
+            <th>IP Addresses</th>
+            <th class="sortable" data-col="3">OS Type <span class="sort-icon">⇅</span></th>
+            <th class="sortable" data-col="4">Power <span class="sort-icon">⇅</span></th>
+            <th class="sortable" data-col="5">ESXi Host <span class="sort-icon">⇅</span></th>
+            <th class="sortable" data-col="6">Source <span class="sort-icon">⇅</span></th>
+            {% if asset_configured %}
+            <th class="sortable" data-col="7">Asset List <span class="sort-icon">⇅</span></th>
+            {% endif %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for vm in vms %}
+          <tr class="vm-row" data-search="{{ [vm.name, vm.hostname, vm.ip_addresses, vm.os_type, vm.esxi_host_name, vm.get('source_host','')]|join(' ')|lower }}">
+            <td>
+              <span class="vm-name">{{ vm.name }}</span>
+            </td>
+            <td>
+              <span style="font-family:var(--mono);font-size:.78rem;color:var(--text-muted)">{{ vm.hostname }}</span>
+            </td>
+            <td>
+              {% set ips = vm.ip_addresses.split(' | ') if vm.ip_addresses and vm.ip_addresses != 'Not Available' else [] %}
+              {% if ips %}
+                {% if ips|length == 1 %}
+                  <span class="ip-tag">{{ ips[0] }}</span>
+                {% else %}
+                  <span class="ip-tag">{{ ips[0] }}</span>
+                  <button class="ip-more" data-ips="{{ ips[1:]|join('\n') }}" title="{{ ips|length - 1 }} more IPs">
+                    +{{ ips|length - 1 }}
+                  </button>
+                {% endif %}
+              {% else %}
+                <span style="color:var(--text-dim)">—</span>
+              {% endif %}
+            </td>
+            <td>
+              <span style="font-size:.77rem;color:var(--text-muted)">{{ vm.os_type if vm.os_type and vm.os_type != 'Not Available' else '—' }}</span>
+            </td>
+            <td>
+              {% set pw = vm.power_state %}
+              <span class="power-badge power-badge--{{ pw }}">
+                {{ 'ON' if pw == 'poweredOn' else ('OFF' if pw == 'poweredOff' else pw|upper) }}
+              </span>
+            </td>
+            <td>
+              <div style="font-family:var(--mono);font-size:.75rem">{{ vm.esxi_host_name if vm.esxi_host_name and vm.esxi_host_name != 'Not Available' else '—' }}</div>
+              {% if vm.esxi_host_ip and vm.esxi_host_ip != 'Not Available' %}
+              <div style="font-size:.68rem;color:var(--text-dim)">{{ vm.esxi_host_ip }}</div>
+              {% endif %}
+            </td>
+            <td>
+              <span style="font-family:var(--mono);font-size:.72rem;color:var(--text-muted)">{{ vm.get('source_host','—') }}</span>
+            </td>
+            {% if asset_configured %}
+            <td>
+              {% set al = vm.get('asset_list','—') %}
+              {% if al == 'Asset Inventory' %}
+                <span class="asset-badge asset-badge--main">Asset Inventory</span>
+              {% elif al == 'Ext. Asset Inventory' %}
+                <span class="asset-badge asset-badge--ext">Ext. Asset Inv.</span>
+              {% elif al == 'Both' %}
+                <span class="asset-badge asset-badge--both">Both</span>
+              {% else %}
+                <span class="asset-badge asset-badge--none">—</span>
+              {% endif %}
+            </td>
+            {% endif %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div id="noResults" class="no-results" style="display:none">No VMs match your filter.</div>
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <div class="empty-icon">◈</div>
+    <p>No VMs found for this category.</p>
+    <a href="{{ url_for('dashboard') }}" class="btn btn--outline" style="margin-top:1rem">Back to Dashboard</a>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  // ── Search filter ────────────────────────────────────────
+  const searchInput = document.getElementById('vmSearch');
+  const rows        = document.querySelectorAll('#vmsTable tbody .vm-row');
+  const noResults   = document.getElementById('noResults');
+
+  if (searchInput) {
+    searchInput.addEventListener('input', function () {
+      const q = this.value.toLowerCase().trim();
+      let visible = 0;
+      rows.forEach(function (row) {
+        const match = !q || row.dataset.search.includes(q);
+        row.style.display = match ? '' : 'none';
+        if (match) visible++;
+      });
+      if (noResults) noResults.style.display = visible === 0 ? '' : 'none';
+    });
+  }
+
+  // ── Column sort ──────────────────────────────────────────
+  const table   = document.getElementById('vmsTable');
+  let sortCol   = -1;
+  let sortAsc   = true;
+
+  document.querySelectorAll('#vmsTable th.sortable').forEach(function (th) {
+    th.style.cursor = 'pointer';
+    th.addEventListener('click', function () {
+      const col = parseInt(this.dataset.col, 10);
+      if (sortCol === col) { sortAsc = !sortAsc; } else { sortCol = col; sortAsc = true; }
+
+      document.querySelectorAll('#vmsTable th.sortable').forEach(function (h) {
+        h.querySelector('.sort-icon').textContent = '⇅';
+      });
+      th.querySelector('.sort-icon').textContent = sortAsc ? '↑' : '↓';
+
+      const tbody = table.querySelector('tbody');
+      const allRows = Array.from(tbody.querySelectorAll('tr'));
+      allRows.sort(function (a, b) {
+        const aText = (a.cells[col] ? a.cells[col].textContent : '').trim().toLowerCase();
+        const bText = (b.cells[col] ? b.cells[col].textContent : '').trim().toLowerCase();
+        const n = parseFloat(aText) - parseFloat(bText);
+        if (!isNaN(n)) return sortAsc ? n : -n;
+        return sortAsc ? aText.localeCompare(bText) : bText.localeCompare(aText);
+      });
+      allRows.forEach(function (r) { tbody.appendChild(r); });
+    });
+  });
+})();
+</script>
+{% endblock %}

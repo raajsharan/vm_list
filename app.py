@@ -404,6 +404,22 @@ def create_app() -> Flask:
         sorted_vcenters = sorted(vc_map.items(), key=lambda x: x[1]["total"], reverse=True)
         sorted_os       = sorted(os_map.items(), key=lambda x: x[1], reverse=True)[:12]
 
+        # Daily VM creation trend (VMware created_date field)
+        import datetime as _dt
+        created_by_date = database.get_vm_created_by_date()
+        all_dates       = sorted(created_by_date.keys())
+        if all_dates:
+            start = _dt.date.fromisoformat(all_dates[0])
+            end   = _dt.date.today()
+            daily_series = []
+            d = start
+            while d <= end:
+                ds = d.isoformat()
+                daily_series.append({"date": ds, "count": created_by_date.get(ds, 0)})
+                d += _dt.timedelta(days=1)
+        else:
+            daily_series = []
+
         return render_template(
             "asset_dashboard.html",
             stats=overall,
@@ -412,6 +428,83 @@ def create_app() -> Flask:
             power_stats=pwr_map,
             asset_configured=asset_configured,
             creds=creds,
+            daily_series=daily_series,
+        )
+
+    # -----------------------------------------------------------------------
+    # Dashboard VM detail — filtered list by asset category
+    # -----------------------------------------------------------------------
+
+    _CATEGORY_META = {
+        "all":           ("All VMs",                    "Every VM in the current inventory."),
+        "asset_inv":     ("In Asset Inventory",         "VMs whose IP is found in the Asset Inventory (including Both)."),
+        "ext_asset_inv": ("In Ext. Asset Inventory",    "VMs whose IP is found in the Ext. Asset Inventory (including Both)."),
+        "both":          ("In Both Lists",              "VMs whose IP appears in both Asset Inventory and Ext. Asset Inventory."),
+        "not_found":     ("Not in Any List",            "VMs whose IPs were not found in either inventory."),
+    }
+
+    @app.route("/dashboard/vms/<category>", methods=["GET"])
+    def dashboard_vms(category):
+        if category not in _CATEGORY_META:
+            flash("Unknown category.", "error")
+            return redirect(url_for("dashboard"))
+
+        raw_vms = database.load_latest_inventory_all_hosts()
+        if not raw_vms:
+            raw_vms = cache_store.load_all_hosts()
+
+        asset_configured = asset_api.is_configured()
+        asset_ip_map     = asset_api.fetch_all_asset_ips() if asset_configured else {}
+
+        vms = []
+        for vm in raw_vms:
+            display = data_processor.normalise_for_display([vm])[0]
+
+            if asset_configured:
+                vm_ips = [ip.strip() for ip in display["ip_addresses"].split(" | ")
+                          if ip.strip() and ip.strip() != "Not Available"]
+                found: set = set()
+                for ip in vm_ips:
+                    label = asset_ip_map.get(ip.lower())
+                    if label == "Both":
+                        found.update({"Asset Inventory", "Ext. Asset Inventory"})
+                    elif label:
+                        found.add(label)
+
+                if "Asset Inventory" in found and "Ext. Asset Inventory" in found:
+                    status = "both"
+                    display["asset_list"] = "Both"
+                elif "Asset Inventory" in found:
+                    status = "asset_inv"
+                    display["asset_list"] = "Asset Inventory"
+                elif "Ext. Asset Inventory" in found:
+                    status = "ext_asset_inv"
+                    display["asset_list"] = "Ext. Asset Inventory"
+                else:
+                    status = "not_found"
+                    display["asset_list"] = "—"
+            else:
+                status = "not_found"
+                display["asset_list"] = ""
+
+            include = (
+                category == "all"
+                or category == status
+                or (category == "asset_inv"     and status in ("asset_inv", "both"))
+                or (category == "ext_asset_inv" and status in ("ext_asset_inv", "both"))
+            )
+            if include:
+                vms.append(display)
+
+        title, description = _CATEGORY_META[category]
+        return render_template(
+            "dashboard_vms.html",
+            vms=vms,
+            category=category,
+            title=title,
+            description=description,
+            asset_configured=asset_configured,
+            total=len(vms),
         )
 
     # -----------------------------------------------------------------------

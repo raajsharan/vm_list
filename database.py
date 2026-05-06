@@ -196,6 +196,54 @@ def load_saved_inventory(limit: int = 500) -> list[dict]:
         session.close()
 
 
+def get_vm_created_by_date() -> dict:
+    """
+    Returns {date_str: count} of VMs grouped by their VMware creation date
+    (the created_date field, not our discovery timestamp).
+    Uses only the latest discovery snapshot per host.
+    """
+    if SessionLocal is None:
+        return {}
+    session = SessionLocal()
+    try:
+        import re
+        from collections import Counter
+        from sqlalchemy import func
+
+        subq = (
+            session.query(
+                VmInventoryRecord.source_host,
+                func.max(VmInventoryRecord.discovered_at).label("max_dt"),
+            )
+            .group_by(VmInventoryRecord.source_host)
+            .subquery()
+        )
+        rows = (
+            session.query(VmInventoryRecord.created_date)
+            .join(
+                subq,
+                (VmInventoryRecord.source_host == subq.c.source_host)
+                & (VmInventoryRecord.discovered_at == subq.c.max_dt),
+            )
+            .all()
+        )
+
+        counts: Counter = Counter()
+        for (raw,) in rows:
+            if not raw or raw == "Not Available":
+                continue
+            m = re.search(r"(\d{4}-\d{2}-\d{2})", str(raw))
+            if m:
+                counts[m.group(1)] += 1
+
+        return dict(counts)
+    except SQLAlchemyError as exc:
+        logger.exception("Failed to get VM creation dates: %s", exc)
+        return {}
+    finally:
+        session.close()
+
+
 def load_latest_inventory_all_hosts() -> list[dict]:
     """
     Return the most-recent discovery snapshot for EVERY source host,

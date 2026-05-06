@@ -21,6 +21,27 @@
   </div>
 
   <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- DAILY VMs CREATED CARD                                    -->
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <div class="card adash-daily-card">
+    <div class="card-header" style="margin-bottom:.6rem">
+      <h2 class="card-title">VMs Created per Day</h2>
+      {% if daily_series %}
+      <span style="font-size:.7rem;color:var(--text-muted)">{{ daily_series|length }} days · VMware creation date</span>
+      {% endif %}
+    </div>
+    {% if daily_series %}
+    <div class="adash-daily-wrap">
+      <canvas id="dailyChart"></canvas>
+    </div>
+    {% else %}
+    <div style="padding:1.5rem;text-align:center;color:var(--text-dim);font-size:.8rem">
+      No VM creation date data available. Run a discovery to populate.
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════ -->
   <!-- TOP STAT CARDS                                            -->
   <!-- ══════════════════════════════════════════════════════════ -->
   {% set t = stats.total %}
@@ -31,6 +52,7 @@
 
   <div class="adash-cards">
 
+    <a href="{{ url_for('dashboard_vms', category='all') }}" class="adash-card-link">
     <div class="adash-card">
       <div class="adc-top">
         <div class="adc-icon adc-icon--accent">⊞</div>
@@ -40,7 +62,9 @@
       <div class="adc-label">Total VMs Discovered</div>
       <div class="adc-bar" style="--bar-w:100%;--bar-c:var(--accent)"></div>
     </div>
+    </a>
 
+    <a href="{{ url_for('dashboard_vms', category='asset_inv') }}" class="adash-card-link">
     <div class="adash-card">
       <div class="adc-top">
         <div class="adc-icon adc-icon--green">◈</div>
@@ -50,7 +74,9 @@
       <div class="adc-label">In Asset Inventory</div>
       <div class="adc-bar" style="--bar-w:{{ pct_ai }}%;--bar-c:var(--green)"></div>
     </div>
+    </a>
 
+    <a href="{{ url_for('dashboard_vms', category='ext_asset_inv') }}" class="adash-card-link">
     <div class="adash-card">
       <div class="adc-top">
         <div class="adc-icon adc-icon--accent">◈</div>
@@ -60,7 +86,9 @@
       <div class="adc-label">In Ext. Asset Inventory</div>
       <div class="adc-bar" style="--bar-w:{{ pct_ext }}%;--bar-c:var(--accent)"></div>
     </div>
+    </a>
 
+    <a href="{{ url_for('dashboard_vms', category='both') }}" class="adash-card-link">
     <div class="adash-card">
       <div class="adc-top">
         <div class="adc-icon adc-icon--yellow">◈</div>
@@ -70,7 +98,9 @@
       <div class="adc-label">In Both Lists</div>
       <div class="adc-bar" style="--bar-w:{{ pct_both }}%;--bar-c:var(--yellow)"></div>
     </div>
+    </a>
 
+    <a href="{{ url_for('dashboard_vms', category='not_found') }}" class="adash-card-link">
     <div class="adash-card">
       <div class="adc-top">
         <div class="adc-icon adc-icon--red">◈</div>
@@ -80,6 +110,7 @@
       <div class="adc-label">Not in Any List</div>
       <div class="adc-bar" style="--bar-w:{{ pct_nf }}%;--bar-c:var(--red)"></div>
     </div>
+    </a>
 
   </div>
 
@@ -366,6 +397,61 @@
       },
     },
   });
+  {% endif %}
+
+  // ── Daily VMs Created bar chart ─────────────────────────
+  {% if daily_series %}
+  const dailySeries = {{ daily_series | tojson }};
+  const dailyCanvas = document.getElementById('dailyChart');
+  if (dailyCanvas) {
+    const barW = Math.max(8, Math.min(22, Math.floor(dailyCanvas.parentElement.offsetWidth / dailySeries.length)));
+    dailyCanvas.parentElement.style.width = Math.max(dailyCanvas.parentElement.offsetWidth, dailySeries.length * barW + 40) + 'px';
+    new Chart(dailyCanvas, {
+      type: 'bar',
+      data: {
+        labels: dailySeries.map(d => d.date),
+        datasets: [{
+          label: 'VMs Created',
+          data:  dailySeries.map(d => d.count),
+          backgroundColor: C.accentA + '.45)',
+          borderColor:     C.accent,
+          borderWidth: 1, borderRadius: 2,
+        }],
+      },
+      options: {
+        responsive: false,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              title: ctx => ctx[0].label,
+              label: ctx => ` ${ctx.parsed.y} VM${ctx.parsed.y !== 1 ? 's' : ''} created`,
+            },
+          },
+        },
+        scales: {
+          x: {
+            grid: { display: false },
+            ticks: {
+              maxTicksLimit: 24,
+              maxRotation: 45,
+              font: { size: 9 },
+              callback: function(val, idx) {
+                const lbl = dailySeries[idx]?.date || '';
+                return idx % Math.ceil(dailySeries.length / 20) === 0 ? lbl.slice(5) : '';
+              },
+            },
+          },
+          y: {
+            grid: { color: C.border },
+            beginAtZero: true,
+            ticks: { precision: 0, font: { size: 9 } },
+          },
+        },
+      },
+    });
+  }
   {% endif %}
 
   // ── OS distribution horizontal bar chart ───────────────

@@ -2508,6 +2508,36 @@ tr.ml-unmatched td:first-child {
    Asset Intelligence Dashboard
    ══════════════════════════════════════════════════════ */
 
+/* ── Daily VMs created card ── */
+.adash-daily-card {
+  margin: 1.5rem 0 0;
+}
+.adash-daily-wrap {
+  overflow-x: auto;
+  overflow-y: hidden;
+  height: 160px;
+  position: relative;
+}
+.adash-daily-wrap canvas {
+  height: 160px !important;
+}
+
+/* ── Clickable stat card links ── */
+.adash-card-link {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+}
+.adash-card-link:hover .adash-card {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 20px rgba(0,0,0,.35);
+  cursor: pointer;
+}
+.adash-card-link:hover .adash-card::before {
+  opacity: 1;
+}
+
 /* ── Stat cards row ── */
 .adash-cards {
   display: grid;
