@@ -622,7 +622,7 @@ def create_app() -> Flask:
 
             display["asset_status"]   = asset_status
             display["asset_record"]   = matched_record
-            display["can_add_to_ext"] = asset_status not in ("ext_asset_inv", "both")
+            display["can_add_to_ext"] = asset_status == "not_found"
             display["first_ip"]       = first_ip
             display["first_mac"]      = first_mac
             vms.append(display)
