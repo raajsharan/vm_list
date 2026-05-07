@@ -531,6 +531,110 @@ def create_app() -> Flask:
         )
 
     # -----------------------------------------------------------------------
+    # Asset Details — per-VM asset record view + add-to-ext action
+    # -----------------------------------------------------------------------
+
+    @app.route("/asset-details", methods=["GET"])
+    def asset_details():
+        raw_vms = database.load_latest_inventory_all_hosts()
+        if not raw_vms:
+            raw_vms = cache_store.load_all_hosts()
+
+        asset_configured = asset_api.is_configured()
+        if asset_configured:
+            full_records = asset_api.fetch_assets_full()
+            asset_ip_map = asset_api.fetch_all_asset_ips()
+        else:
+            full_records = {}
+            asset_ip_map = {}
+
+        stats = {"total": 0, "asset_inv": 0, "ext_asset_inv": 0, "both": 0, "not_found": 0}
+        vms   = []
+
+        for vm in raw_vms:
+            display  = data_processor.normalise_for_display([vm])[0]
+            stats["total"] += 1
+
+            vm_ips = [ip.strip() for ip in display["ip_addresses"].split(" | ")
+                      if ip.strip() and ip.strip() != "Not Available"]
+
+            asset_status   = "not_found"
+            matched_record = {}
+
+            if asset_configured and vm_ips:
+                found: set = set()
+                for ip in vm_ips:
+                    label = asset_ip_map.get(ip.lower())
+                    if label == "Both":
+                        found.update({"Asset Inventory", "Ext. Asset Inventory"})
+                    elif label:
+                        found.add(label)
+                    if not matched_record:
+                        matched_record = full_records.get(ip.lower(), {})
+
+                if "Asset Inventory" in found and "Ext. Asset Inventory" in found:
+                    asset_status = "both"
+                elif "Asset Inventory" in found:
+                    asset_status = "asset_inv"
+                elif "Ext. Asset Inventory" in found:
+                    asset_status = "ext_asset_inv"
+
+            stats[asset_status] += 1
+
+            # First IP and MAC for the add-to-ext form value
+            first_ip  = vm_ips[0] if vm_ips else ""
+            macs_raw  = display.get("mac_addresses", "")
+            first_mac = ""
+            if macs_raw and macs_raw != "Not Available":
+                first_mac = macs_raw.split(" | ")[0].strip()
+
+            display["asset_status"]   = asset_status
+            display["asset_record"]   = matched_record
+            display["can_add_to_ext"] = asset_status not in ("ext_asset_inv", "both")
+            display["first_ip"]       = first_ip
+            display["first_mac"]      = first_mac
+            vms.append(display)
+
+        return render_template(
+            "asset_details.html",
+            vms=vms,
+            stats=stats,
+            asset_configured=asset_configured,
+        )
+
+    @app.route("/asset-details/add-to-ext", methods=["POST"])
+    def asset_details_add_to_ext():
+        selected = request.form.getlist("selected_vms")
+        if not selected:
+            flash("No VMs selected.", "warning")
+            return redirect(url_for("asset_details"))
+
+        entries = []
+        for item in selected:
+            parts = item.split("|||")
+            ip = parts[0].strip() if len(parts) > 0 else ""
+            if ip and ip != "Not Available":
+                entries.append({
+                    "ip_address":  ip,
+                    "hostname":    parts[1].strip() if len(parts) > 1 else "",
+                    "vm_name":     parts[2].strip() if len(parts) > 2 else "",
+                    "mac_address": parts[3].strip() if len(parts) > 3 else "",
+                })
+
+        if not entries:
+            flash("No valid IP addresses found in selection.", "warning")
+            return redirect(url_for("asset_details"))
+
+        success, fail, errors = asset_api.add_to_ext_inventory(entries)
+
+        if success:
+            flash(f"Added {success} VM(s) to Ext. Asset Inventory.", "success")
+        if fail:
+            flash(f"Failed to add {fail} VM(s): {'; '.join(errors[:3])}", "error")
+
+        return redirect(url_for("asset_details"))
+
+    # -----------------------------------------------------------------------
     # All VMs — consolidated multi-host VM list (formerly "Dashboard")
     # -----------------------------------------------------------------------
 

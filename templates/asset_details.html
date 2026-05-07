@@ -1,0 +1,304 @@
+{% extends "base.html" %}
+{% block title %}Asset Details — VMware Inventory{% endblock %}
+
+{% block content %}
+<div class="page-asset-details">
+
+  <!-- ── Page header ── -->
+  <div class="inventory-header">
+    <div>
+      <div class="page-label">ASSET INTELLIGENCE</div>
+      <h1 class="page-title">Asset <span class="accent">Details</span></h1>
+      <p class="hero-sub" style="margin-top:.4rem">
+        Per-VM asset inventory records &nbsp;·&nbsp;
+        <span style="font-family:var(--mono)">{{ stats.total }}</span> VMs
+        {% if asset_configured %}
+        &nbsp;·&nbsp; <span style="color:var(--green);font-family:var(--mono)">{{ stats.asset_inv + stats.both }}</span> in Asset Inv
+        &nbsp;·&nbsp; <span style="color:var(--accent);font-family:var(--mono)">{{ stats.ext_asset_inv + stats.both }}</span> in Ext. Asset Inv
+        &nbsp;·&nbsp; <span style="color:var(--red);font-family:var(--mono)">{{ stats.not_found }}</span> not found
+        {% endif %}
+      </p>
+    </div>
+    <div class="inventory-actions">
+      <a href="{{ url_for('dashboard') }}" class="btn btn--secondary">← Dashboard</a>
+      {% if not asset_configured %}
+      <a href="{{ url_for('settings') }}" class="btn btn--outline">Configure API</a>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if not asset_configured %}
+  <div class="flash flash--warning" style="margin-bottom:1.5rem">
+    <span class="flash-icon">⚠</span>
+    Asset Inventory API is not configured. Asset status and details columns will be empty.
+    <a href="{{ url_for('settings') }}" style="color:inherit;margin-left:.5rem;text-decoration:underline">Configure in Settings →</a>
+  </div>
+  {% endif %}
+
+  <!-- ── Filter tabs + search row ── -->
+  <div class="ad-toolbar">
+    <div class="view-toggle" id="adFilterTabs">
+      <button class="view-btn active" data-filter="all">
+        All <span class="ad-tab-count">{{ stats.total }}</span>
+      </button>
+      <button class="view-btn" data-filter="asset_inv">
+        Asset Inv. <span class="ad-tab-count">{{ stats.asset_inv }}</span>
+      </button>
+      <button class="view-btn" data-filter="ext_asset_inv">
+        Ext. Asset Inv. <span class="ad-tab-count">{{ stats.ext_asset_inv }}</span>
+      </button>
+      <button class="view-btn" data-filter="both">
+        Both <span class="ad-tab-count">{{ stats.both }}</span>
+      </button>
+      <button class="view-btn" data-filter="not_found">
+        Not Found <span class="ad-tab-count">{{ stats.not_found }}</span>
+      </button>
+    </div>
+    <div class="filter-search" style="max-width:280px">
+      <span class="search-icon">⌕</span>
+      <input id="adSearch" type="text" class="search-input" placeholder="Filter by name, IP, hostname…" autocomplete="off" />
+    </div>
+  </div>
+
+  <!-- ── Selection form (only when API configured) ── -->
+  {% if asset_configured %}
+  <form method="POST" action="{{ url_for('asset_details_add_to_ext') }}" id="addExtForm">
+
+    <!-- Floating action bar -->
+    <div class="sel-bar" id="adSelBar" hidden>
+      <div class="sel-bar-left">
+        <span class="sel-bar-count" id="adSelCount">0 selected</span>
+        <button type="button" class="btn btn--ghost btn--xs" id="adSelAll">Select All Eligible</button>
+        <button type="button" class="btn btn--ghost btn--xs" id="adSelNone">Clear</button>
+      </div>
+      <div class="sel-bar-right">
+        <span style="font-size:.72rem;color:var(--text-muted);font-family:var(--mono)">
+          Add to Ext. Asset Inventory
+        </span>
+        <button type="submit" class="btn btn--primary btn--sm">
+          + Add Selected (<span id="adSelCountBtn">0</span>)
+        </button>
+      </div>
+    </div>
+  {% endif %}
+
+  <!-- ── Table ── -->
+  {% if vms %}
+  <div class="card" style="overflow:hidden;padding:0;margin-top:.75rem">
+    <div style="overflow-x:auto">
+      <table class="vm-table" id="adTable">
+        <thead>
+          <tr>
+            {% if asset_configured %}
+            <th style="width:36px;padding-left:1rem"></th>
+            {% endif %}
+            <th>VM Name</th>
+            <th>IP Addresses</th>
+            <th>Hostname</th>
+            <th>OS Type</th>
+            <th>Power</th>
+            {% if asset_configured %}
+            <th>Asset Status</th>
+            <th>Asset IP</th>
+            <th>Asset Hostname</th>
+            {% endif %}
+            <th>Source / vCenter</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for vm in vms %}
+          {% set rec = vm.asset_record %}
+          <tr class="ad-row"
+              data-status="{{ vm.asset_status }}"
+              data-search="{{ [vm.name, vm.hostname, vm.ip_addresses, vm.os_type, vm.get('source_host','')]|join(' ')|lower }}">
+
+            {% if asset_configured %}
+            <td style="padding-left:1rem;padding-right:.5rem">
+              {% if vm.can_add_to_ext %}
+              <label class="hc-select-wrap" title="Select to add to Ext. Asset Inventory">
+                <input type="checkbox" name="selected_vms"
+                       class="ad-cb"
+                       value="{{ vm.first_ip }}|||{{ vm.hostname }}|||{{ vm.name }}|||{{ vm.first_mac }}">
+                <span class="hc-checkmark"></span>
+              </label>
+              {% else %}
+              <span class="ad-no-cb" title="Already in Ext. Asset Inventory">✓</span>
+              {% endif %}
+            </td>
+            {% endif %}
+
+            <td>
+              <span class="vm-name">{{ vm.name }}</span>
+            </td>
+
+            <td>
+              {% set ips = vm.ip_addresses.split(' | ') if vm.ip_addresses and vm.ip_addresses != 'Not Available' else [] %}
+              {% if ips %}
+                <span class="ip-tag">{{ ips[0] }}</span>
+                {% if ips|length > 1 %}
+                <button class="ip-more" data-ips="{{ ips[1:]|join('\n') }}" title="{{ ips|length - 1 }} more IPs">
+                  +{{ ips|length - 1 }}
+                </button>
+                {% endif %}
+              {% else %}
+                <span style="color:var(--text-dim)">—</span>
+              {% endif %}
+            </td>
+
+            <td>
+              <span style="font-family:var(--mono);font-size:.78rem;color:var(--text-muted)">
+                {{ vm.hostname if vm.hostname and vm.hostname != 'Not Available' else '—' }}
+              </span>
+            </td>
+
+            <td>
+              <span style="font-size:.77rem;color:var(--text-muted)">
+                {{ vm.os_type if vm.os_type and vm.os_type != 'Not Available' else '—' }}
+              </span>
+            </td>
+
+            <td>
+              {% set pw = vm.power_state %}
+              <span class="power-badge power-badge--{{ pw }}">
+                {{ 'ON' if pw == 'poweredOn' else ('OFF' if pw == 'poweredOff' else pw|upper) }}
+              </span>
+            </td>
+
+            {% if asset_configured %}
+            <td>
+              {% if vm.asset_status == 'asset_inv' %}
+                <span class="asset-badge asset-badge--main">Asset Inventory</span>
+              {% elif vm.asset_status == 'ext_asset_inv' %}
+                <span class="asset-badge asset-badge--ext">Ext. Asset Inv.</span>
+              {% elif vm.asset_status == 'both' %}
+                <span class="asset-badge asset-badge--both">Both</span>
+              {% else %}
+                <span class="asset-badge asset-badge--none">Not Found</span>
+              {% endif %}
+            </td>
+
+            <td>
+              {% if rec.get('ip_address') %}
+                <span class="ip-tag">{{ rec.ip_address }}</span>
+              {% else %}
+                <span class="ad-blank">—</span>
+              {% endif %}
+            </td>
+
+            <td>
+              {% if rec.get('hostname') %}
+                <span style="font-family:var(--mono);font-size:.75rem">{{ rec.hostname }}</span>
+              {% else %}
+                <span class="ad-blank">—</span>
+              {% endif %}
+            </td>
+            {% endif %}
+
+            <td>
+              <span style="font-family:var(--mono);font-size:.72rem;color:var(--text-muted)">
+                {{ vm.get('source_host', '—') }}
+              </span>
+            </td>
+
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div id="adNoResults" class="no-results" style="display:none">No VMs match the current filter.</div>
+  </div>
+  {% else %}
+  <div class="empty-state" style="margin-top:2rem">
+    <div class="empty-icon">◈</div>
+    <p>No VM data found. Run a discovery first.</p>
+    <a href="{{ url_for('credentials') }}" class="btn btn--outline" style="margin-top:1rem">Go to Credentials</a>
+  </div>
+  {% endif %}
+
+  {% if asset_configured %}
+  </form>
+  {% endif %}
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+
+  // ── Filter tabs ───────────────────────────────────────────
+  var currentFilter = 'all';
+  var rows          = document.querySelectorAll('.ad-row');
+  var noResults     = document.getElementById('adNoResults');
+  var searchInput   = document.getElementById('adSearch');
+
+  function applyFilters() {
+    var q = searchInput ? searchInput.value.toLowerCase().trim() : '';
+    var visible = 0;
+    rows.forEach(function (row) {
+      var statusOk = currentFilter === 'all' || row.dataset.status === currentFilter;
+      var searchOk = !q || (row.dataset.search || '').includes(q);
+      var show = statusOk && searchOk;
+      row.style.display = show ? '' : 'none';
+      if (show) visible++;
+    });
+    if (noResults) noResults.style.display = visible === 0 ? '' : 'none';
+  }
+
+  document.querySelectorAll('#adFilterTabs .view-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      document.querySelectorAll('#adFilterTabs .view-btn').forEach(function (b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      currentFilter = btn.dataset.filter;
+      applyFilters();
+      updateSelBar();
+    });
+  });
+
+  if (searchInput) searchInput.addEventListener('input', applyFilters);
+
+  // ── Bulk selection ────────────────────────────────────────
+  var selBar      = document.getElementById('adSelBar');
+  var selCount    = document.getElementById('adSelCount');
+  var selCountBtn = document.getElementById('adSelCountBtn');
+  var selAllBtn   = document.getElementById('adSelAll');
+  var selNoneBtn  = document.getElementById('adSelNone');
+
+  function updateSelBar() {
+    var checkboxes = document.querySelectorAll('.ad-cb');
+    var checked    = document.querySelectorAll('.ad-cb:checked').length;
+    if (selBar)      selBar.hidden          = checked === 0;
+    if (selCount)    selCount.textContent   = checked + ' selected';
+    if (selCountBtn) selCountBtn.textContent = checked;
+    checkboxes.forEach(function (cb) {
+      var row = cb.closest('.ad-row');
+      if (row) row.classList.toggle('host-card--selected', cb.checked);
+    });
+  }
+
+  document.addEventListener('change', function (e) {
+    if (e.target.classList.contains('ad-cb')) updateSelBar();
+  });
+
+  if (selAllBtn) {
+    selAllBtn.addEventListener('click', function () {
+      // Only select visible, eligible rows
+      rows.forEach(function (row) {
+        if (row.style.display === 'none') return;
+        var cb = row.querySelector('.ad-cb');
+        if (cb && !cb.disabled) cb.checked = true;
+      });
+      updateSelBar();
+    });
+  }
+
+  if (selNoneBtn) {
+    selNoneBtn.addEventListener('click', function () {
+      document.querySelectorAll('.ad-cb').forEach(function (cb) { cb.checked = false; });
+      updateSelBar();
+    });
+  }
+
+})();
+</script>
+{% endblock %}

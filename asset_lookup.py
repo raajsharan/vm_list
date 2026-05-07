@@ -28,6 +28,7 @@ _IP_CACHE_TTL_ERR = 60  # 1 minute retry after failed/empty fetch
 _lock        = threading.Lock()
 _token_state: dict = {}  # {token, expires_at}
 _ip_state:    dict = {}  # {data, expires_at, main_count, ext_count, fetched_at, error}
+_full_state:  dict = {}  # {data, expires_at}   data = {ip: full_record_dict}
 
 
 # ── Encryption (reuses same ENCRYPTION_KEY as credential_store) ─────────────
@@ -104,6 +105,7 @@ def is_configured() -> bool:
 def invalidate_cache() -> None:
     with _lock:
         _ip_state.clear()
+        _full_state.clear()
 
 
 def get_cache_info() -> dict:
@@ -330,3 +332,153 @@ def test_connection() -> tuple[bool, str]:
         f"Asset Inventory: {asset_count} record(s). "
         f"Ext. Asset Inventory: {ext_total} record(s)."
     )
+
+
+# ── Full asset record fetch (for asset-details page) ─────────────────────────
+
+def fetch_assets_full() -> dict:
+    """
+    Returns {ip_lowercase: record_dict} for every known asset.
+    Each record_dict has a 'source' key: "Asset Inventory", "Ext. Asset Inventory", or "Both".
+    Cached for 10 min. Warms the IP-only cache as a side-effect when it is stale.
+    """
+    with _lock:
+        if _full_state.get("data") is not None and time.time() < _full_state.get("expires_at", 0):
+            return _full_state["data"]
+
+    cfg = load_config()
+    if not cfg.get("base_url") or not cfg.get("username"):
+        return {}
+
+    result: dict = {}
+    main_count = 0
+    ext_count  = 0
+
+    # ── Main asset inventory ──
+    data = _get(cfg, "/api/assets/report")
+    if isinstance(data, list):
+        assets = data
+    elif isinstance(data, dict):
+        assets = data.get("assets", [])
+    else:
+        assets = []
+
+    for a in assets:
+        ip = (a.get("ip_address") or "").strip().lower()
+        if ip:
+            result[ip] = {**a, "source": "Asset Inventory"}
+            main_count += 1
+
+    # ── Extended inventory (paginated) ──
+    limit, page = 500, 1
+    while True:
+        data = _get(cfg, f"/api/extended-inventory?limit={limit}&page={page}")
+        if not isinstance(data, dict):
+            break
+        items = data.get("items", [])
+        if not items:
+            break
+        for item in items:
+            ip = (item.get("ip_address") or "").strip().lower()
+            if ip:
+                if ip in result:
+                    result[ip]["source"] = "Both"
+                    for k, v in item.items():
+                        if v and not result[ip].get(k):
+                            result[ip][k] = v
+                else:
+                    result[ip] = {**item, "source": "Ext. Asset Inventory"}
+                ext_count += 1
+        total = data.get("total", 0)
+        if page * limit >= total:
+            break
+        page += 1
+
+    ttl = _IP_CACHE_TTL if result else _IP_CACHE_TTL_ERR
+
+    with _lock:
+        _full_state["data"]       = result
+        _full_state["expires_at"] = time.time() + ttl
+        # Warm the IP-only cache if stale
+        if not (_ip_state.get("data") and time.time() < _ip_state.get("expires_at", 0)):
+            ip_map: dict = {}
+            for ip, rec in result.items():
+                src = rec.get("source", "")
+                ip_map[ip] = "Both" if src == "Both" else ("Ext. Asset Inventory" if "Ext" in src else "Asset Inventory")
+            _ip_state.update({
+                "data":       ip_map,
+                "expires_at": time.time() + ttl,
+                "main_count": main_count,
+                "ext_count":  ext_count,
+                "fetched_at": time.time(),
+                "error":      "",
+            })
+
+    logger.info("Asset full-record cache: %d records (%d main + %d ext)", len(result), main_count, ext_count)
+    return result
+
+
+def _post(cfg: dict, path: str, payload: dict):
+    """Authenticated POST to the asset API. Returns parsed JSON or None."""
+    token = _get_token(cfg)
+    if not token:
+        return None
+    req = urllib.request.Request(
+        f"{cfg['base_url']}{path}",
+        data=json.dumps(payload).encode(),
+        headers={
+            "Authorization":  f"Bearer {token}",
+            "Content-Type":   "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
+            try:
+                return json.loads(resp.read())
+            except Exception:
+                return {"status": "ok"}
+    except urllib.error.HTTPError as exc:
+        body = ""
+        try:
+            body = exc.read().decode()[:400]
+        except Exception:
+            pass
+        logger.warning("Asset API POST HTTP %d for %s: %s", exc.code, path, body)
+        return None
+    except Exception as exc:
+        logger.warning("Asset API POST failed for %s: %s", path, exc)
+        return None
+
+
+def add_to_ext_inventory(entries: list[dict]) -> tuple[int, int, list[str]]:
+    """
+    POST each entry to /api/extended-inventory.
+    Expected entry keys: ip_address (required), hostname, vm_name, mac_address (all optional).
+    Returns (success_count, fail_count, error_messages).
+    Invalidates both caches on any success.
+    """
+    cfg = load_config()
+    if not cfg.get("base_url"):
+        return 0, len(entries), ["Asset API not configured."]
+
+    success = 0
+    fail    = 0
+    errors: list[str] = []
+
+    for entry in entries:
+        payload = {k: v for k, v in entry.items() if v}
+        result  = _post(cfg, "/api/extended-inventory", payload)
+        if result is not None:
+            success += 1
+        else:
+            fail += 1
+            errors.append(f"Failed to add {entry.get('ip_address', '?')}")
+
+    if success:
+        with _lock:
+            _ip_state.clear()
+            _full_state.clear()
+        logger.info("Asset caches cleared after adding %d entries to Ext. Asset Inventory", success)
+
+    return success, fail, errors
