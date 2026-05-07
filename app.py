@@ -651,6 +651,7 @@ def create_app() -> Flask:
                     "hostname":    parts[1].strip() if len(parts) > 1 else "",
                     "vm_name":     parts[2].strip() if len(parts) > 2 else "",
                     "mac_address": parts[3].strip() if len(parts) > 3 else "",
+                    "idrac":       parts[4].strip() if len(parts) > 4 else "",
                 })
 
         if not entries:

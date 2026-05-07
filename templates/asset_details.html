@@ -118,7 +118,7 @@
               <label class="hc-select-wrap" title="Select to add to Ext. Asset Inventory">
                 <input type="checkbox" name="selected_vms"
                        class="ad-cb"
-                       value="{{ vm.first_ip }}|||{{ vm.hostname }}|||{{ vm.name }}|||{{ vm.first_mac }}">
+                       value="{{ vm.first_ip }}|||{{ vm.hostname }}|||{{ vm.name }}|||{{ vm.first_mac }}|||{{ vm.get('source_host','') }}">
                 <span class="hc-checkmark"></span>
               </label>
               {% else %}
