@@ -110,7 +110,7 @@
           {% set rec = vm.asset_record %}
           <tr class="ad-row"
               data-status="{{ vm.asset_status }}"
-              data-search="{{ [vm.name, vm.hostname, vm.ip_addresses, vm.os_type, vm.get('source_host','')]|join(' ')|lower }}">
+              data-search="{{ [vm.name, vm.hostname, vm.ip_addresses, vm.mapped_ips, vm.os_type, vm.get('source_host','')]|join(' ')|lower }}">
 
             {% if asset_configured %}
             <td style="padding-left:1rem;padding-right:.5rem">
@@ -132,16 +132,20 @@
             </td>
 
             <td>
-              {% set ips = vm.ip_addresses.split(' | ') if vm.ip_addresses and vm.ip_addresses != 'Not Available' else [] %}
-              {% if ips %}
-                <span class="ip-tag">{{ ips[0] }}</span>
-                {% if ips|length > 1 %}
-                <button class="ip-more" data-ips="{{ ips[1:]|join('\n') }}" title="{{ ips|length - 1 }} more IPs">
-                  +{{ ips|length - 1 }}
+              {% if vm.display_ips %}
+                {% for entry in vm.display_ips[:2] %}
+                  <span class="ip-tag{% if entry.src == 'mac' %} ip-tag--mapped{% endif %}"
+                        {% if entry.src == 'mac' %}title="IP from MAC Lookup file"{% endif %}>{{ entry.ip }}</span>
+                {% endfor %}
+                {% if vm.display_ips|length > 2 %}
+                <button class="ip-more"
+                        data-ips="{{ vm.display_ips[2:]|map(attribute='ip')|join('\n') }}"
+                        title="{{ vm.display_ips|length - 2 }} more IPs">
+                  +{{ vm.display_ips|length - 2 }}
                 </button>
                 {% endif %}
               {% else %}
-                <span style="color:var(--text-dim)">—</span>
+                <span class="ad-blank">—</span>
               {% endif %}
             </td>
 

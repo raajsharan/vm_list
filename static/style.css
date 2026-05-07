@@ -619,7 +619,9 @@ td.na { color: var(--text-dim); font-style: italic; font-size: 0.75rem; }
   margin: 0.1rem 0.1rem 0.1rem 0;
 }
 .ip-tag  { background: var(--accent-dim); color: var(--accent); border: 1px solid rgba(79,163,224,0.2); }
+.ip-tag--mapped { background: var(--green-dim); color: var(--green); border: 1px solid rgba(62,207,142,0.25); }
 .mac-tag { background: #1a2510; color: #7ec850; border: 1px solid rgba(126,200,80,0.2); }
+[data-theme="light"] .ip-tag--mapped { background: var(--green-dim); color: var(--green); border-color: rgba(22,160,104,0.25); }
 
 .os-version { font-size: 0.78rem; color: var(--text-muted); }
 
