@@ -561,6 +561,14 @@ body {
   top: 0;
   z-index: 10;
 }
+/* Per-cell sticky ensures cross-browser support (Firefox needs this) */
+.vm-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--bg-card);
+  box-shadow: 0 1px 0 var(--border-hi);
+}
 .vm-table th {
   padding: 0.75rem 1rem;
   text-align: left;
@@ -1908,8 +1916,18 @@ code { font-family: var(--mono); font-size: 0.78rem; color: var(--accent); }
 /* Filter bar */
 .db-filter-bar { margin-bottom: 0; }
 
-/* Table wrapper fills remaining space */
-.db-table-wrapper { flex: 1; }
+/* Table wrapper fills remaining space with sticky-header scroll */
+.db-table-wrapper {
+  flex: 1;
+  overflow: auto;
+  max-height: calc(100vh - 320px);
+}
+
+/* Standalone scroll wrapper for pages opened from Dashboard stat cards */
+.vm-scroll-wrap {
+  overflow: auto;
+  max-height: calc(100vh - 280px);
+}
 
 /* Source-host coloured tag */
 .src-tag {
