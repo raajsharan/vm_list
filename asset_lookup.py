@@ -29,6 +29,7 @@ _lock        = threading.Lock()
 _token_state: dict = {}  # {token, expires_at}
 _ip_state:    dict = {}  # {data, expires_at, main_count, ext_count, fetched_at, error}
 _full_state:  dict = {}  # {data, expires_at}   data = {ip: full_record_dict}
+_status_state: dict = {}  # {data, expires_at}   data = {lowercased_name: id}
 
 
 # ── Encryption (reuses same ENCRYPTION_KEY as credential_store) ─────────────
@@ -73,6 +74,7 @@ def save_config(base_url: str, username: str, password: str) -> None:
     with _lock:
         _token_state.clear()
         _ip_state.clear()
+        _status_state.clear()
 
 
 def load_config() -> dict:
@@ -106,6 +108,7 @@ def invalidate_cache() -> None:
     with _lock:
         _ip_state.clear()
         _full_state.clear()
+        _status_state.clear()
 
 
 def get_cache_info() -> dict:
@@ -451,10 +454,57 @@ def _post(cfg: dict, path: str, payload: dict):
         return None
 
 
+def _get_server_status_id(cfg: dict, name: str) -> int | None:
+    """
+    Resolve a server_status row name (e.g. "Alive") to its id via the
+    /api/dropdowns/server_status endpoint. Cached for 10 min.
+    """
+    if not name:
+        return None
+    key = name.strip().lower()
+    with _lock:
+        data = _status_state.get("data")
+        if data is not None and time.time() < _status_state.get("expires_at", 0):
+            return data.get(key)
+
+    rows = _get(cfg, "/api/dropdowns/server_status")
+    if not isinstance(rows, list):
+        return None
+    name_to_id = {
+        str(r.get("name", "")).strip().lower(): r.get("id")
+        for r in rows if r.get("name") and r.get("id") is not None
+    }
+    with _lock:
+        _status_state["data"]       = name_to_id
+        _status_state["expires_at"] = time.time() + _IP_CACHE_TTL
+    return name_to_id.get(key)
+
+
+# Map Flask-side entry keys → asset_invent backend body keys
+_EXT_KEY_MAP = {
+    "ip_address":  "ip_address",
+    "asset_name":  "asset_name",
+    "vm_name":     "vm_name",
+    "os_hostname": "os_hostname",
+    "hostname":    "os_hostname",   # legacy alias
+    "mac_address": "mac_address",
+    "hosted_ip":   "hosted_ip",
+    "host_ip":     "hosted_ip",     # alias
+    "source_host": "hosted_ip",     # alias used by Asset Details form
+}
+
+
 def add_to_ext_inventory(entries: list[dict]) -> tuple[int, int, list[str]]:
     """
     POST each entry to /api/extended-inventory.
-    Expected entry keys: ip_address (required), hostname, vm_name, mac_address (all optional).
+
+    Recognised entry keys (all optional except ip_address):
+      ip_address, asset_name, vm_name, os_hostname (or hostname),
+      mac_address, hosted_ip (or host_ip / source_host).
+
+    Each entry is also stamped with server_status_id resolved from "Alive"
+    via /api/dropdowns/server_status.
+
     Returns (success_count, fail_count, error_messages).
     Invalidates both caches on any success.
     """
@@ -462,12 +512,23 @@ def add_to_ext_inventory(entries: list[dict]) -> tuple[int, int, list[str]]:
     if not cfg.get("base_url"):
         return 0, len(entries), ["Asset API not configured."]
 
+    alive_id = _get_server_status_id(cfg, "Alive")
+
     success = 0
     fail    = 0
     errors: list[str] = []
 
     for entry in entries:
-        payload = {k: v for k, v in entry.items() if v}
+        # Translate aliases to the canonical asset_invent body keys
+        payload: dict = {}
+        for k, v in entry.items():
+            if not v:
+                continue
+            canonical = _EXT_KEY_MAP.get(k, k)
+            # First non-empty value wins (preserves explicit fields over aliases)
+            payload.setdefault(canonical, v)
+        if alive_id is not None:
+            payload["server_status_id"] = alive_id
         result  = _post(cfg, "/api/extended-inventory", payload)
         if result is not None:
             success += 1

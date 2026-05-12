@@ -644,14 +644,19 @@ def create_app() -> Flask:
         entries = []
         for item in selected:
             parts = item.split("|||")
-            ip = parts[0].strip() if len(parts) > 0 else ""
+            ip   = parts[0].strip() if len(parts) > 0 else ""
+            host = parts[1].strip() if len(parts) > 1 else ""
+            name = parts[2].strip() if len(parts) > 2 else ""
+            mac  = parts[3].strip() if len(parts) > 3 else ""
+            esxi = parts[4].strip() if len(parts) > 4 else ""
             if ip and ip != "Not Available":
                 entries.append({
                     "ip_address":  ip,
-                    "hostname":    parts[1].strip() if len(parts) > 1 else "",
-                    "vm_name":     parts[2].strip() if len(parts) > 2 else "",
-                    "mac_address": parts[3].strip() if len(parts) > 3 else "",
-                    "idrac":       parts[4].strip() if len(parts) > 4 else "",
+                    "asset_name":  name,        # Asset Name  ← VM name
+                    "vm_name":     name,
+                    "os_hostname": host,        # OS Hostname
+                    "mac_address": mac,
+                    "hosted_ip":   esxi,        # Host IP Address ← ESXi host
                 })
 
         if not entries:
