@@ -183,6 +183,18 @@ def get_vm_inventory(si) -> list[dict]:
             if _safe(vm, "config", "template") is True:
                 continue
 
+            # Skip orphaned / inaccessible VMs — vCenter exposes them with the
+            # raw .vmx path as the display name (e.g. /vmfs/volumes/<uuid>/foo/foo.vmx)
+            # and they carry no real guest data.
+            vm_name = _safe(vm, "name", default="")
+            conn_state = _safe(vm, "runtime", "connectionState", default="")
+            if conn_state in ("orphaned", "inaccessible", "invalid"):
+                logger.info("Skipping %s VM: %s", conn_state, vm_name or "<unnamed>")
+                continue
+            if vm_name.startswith("/vmfs/") or vm_name.lower().endswith(".vmx"):
+                logger.info("Skipping orphan-style VM (vmx path as name): %s", vm_name)
+                continue
+
             macs, ips = _get_macs_and_ips(vm)
 
             record = {
