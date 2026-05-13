@@ -229,13 +229,33 @@ def get_vm_created_by_date() -> dict:
         )
 
         counts: Counter = Counter()
+        total = 0
+        with_value = 0
+        not_avail  = 0
+        unparsed   = 0
+        sample_unparsed: list = []
         for (raw,) in rows:
-            if not raw or raw == "Not Available":
+            total += 1
+            if not raw:
                 continue
+            if raw == "Not Available":
+                not_avail += 1
+                continue
+            with_value += 1
             m = re.search(r"(\d{4}-\d{2}-\d{2})", str(raw))
             if m:
                 counts[m.group(1)] += 1
+            else:
+                unparsed += 1
+                if len(sample_unparsed) < 3:
+                    sample_unparsed.append(str(raw)[:60])
 
+        logger.info(
+            "VM creation-date scan: %d rows scanned · %d with value · %d 'Not Available' · "
+            "%d unparsed · %d unique dates%s",
+            total, with_value, not_avail, unparsed, len(counts),
+            (" · sample unparsed=" + repr(sample_unparsed)) if sample_unparsed else "",
+        )
         return dict(counts)
     except SQLAlchemyError as exc:
         logger.exception("Failed to get VM creation dates: %s", exc)

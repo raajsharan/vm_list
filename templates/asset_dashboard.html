@@ -26,19 +26,25 @@
   <div class="card adash-daily-card">
     <div class="card-header" style="margin-bottom:.6rem">
       <h2 class="card-title">VMs Created per Day</h2>
-      {% if daily_series %}
-      <span style="font-size:.7rem;color:var(--text-muted)">Last {{ daily_series|length }} days · all ESXi / vCenter sources</span>
-      {% endif %}
+      <span style="font-size:.7rem;color:var(--text-muted)">
+        Last {{ daily_series|length }} days · all ESXi / vCenter sources
+        {% if daily_total %} · {{ daily_total }} VM{{ 's' if daily_total != 1 else '' }} created in window{% endif %}
+      </span>
     </div>
-    {% if daily_series %}
+    {% if not daily_have_any %}
+    <div style="padding:.6rem .9rem;margin-bottom:.6rem;border-radius:6px;background:rgba(240,192,64,.08);border:1px solid rgba(240,192,64,.25);font-size:.74rem;color:var(--text-muted);line-height:1.4">
+      <strong style="color:var(--yellow)">No VM creation dates were captured.</strong>
+      VMware's <code>config.createDate</code> is only populated for VMs created in vSphere 6.7+.
+      Older VMs return <code>Not Available</code>, so the line stays flat. Re-run discovery against a 6.7+ vCenter to populate it.
+    </div>
+    {% elif daily_total == 0 %}
+    <div style="padding:.6rem .9rem;margin-bottom:.6rem;border-radius:6px;background:rgba(79,163,224,.08);border:1px solid rgba(79,163,224,.25);font-size:.74rem;color:var(--text-muted)">
+      No VMs were created in the last 30 days. Creation dates do exist for older VMs in the database.
+    </div>
+    {% endif %}
     <div class="adash-daily-wrap">
       <canvas id="dailyChart"></canvas>
     </div>
-    {% else %}
-    <div style="padding:1.5rem;text-align:center;color:var(--text-dim);font-size:.8rem">
-      No VM creation date data available. Run a discovery to populate.
-    </div>
-    {% endif %}
   </div>
 
   <!-- ══════════════════════════════════════════════════════════ -->
@@ -401,7 +407,6 @@
   {% endif %}
 
   // ── Daily VMs Created line chart (last 30 days, all sources) ──
-  {% if daily_series %}
   const dailySeries = {{ daily_series | tojson }};
   const dailyCanvas = document.getElementById('dailyChart');
   if (dailyCanvas) {
@@ -459,7 +464,6 @@
       },
     });
   }
-  {% endif %}
 
   // ── OS distribution horizontal bar chart ───────────────
   const osData   = {{ os_stats | tojson }};
