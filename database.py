@@ -129,10 +129,14 @@ def save_inventory(records: list[dict], source_host: str):
         return
 
     session = SessionLocal()
+    # One shared timestamp per discovery batch — the "latest snapshot" queries
+    # below match all rows from a batch by equality on this column, so every
+    # row in a single save_inventory call must carry the same discovered_at.
+    batch_dt = datetime.utcnow()
     try:
         for record in records:
             vm = VmInventoryRecord(
-                discovered_at=datetime.utcnow(),
+                discovered_at=batch_dt,
                 source_host=source_host,
                 vm_name=_to_text(record.get("name")),
                 hostname=_to_text(record.get("hostname")),
@@ -207,6 +211,7 @@ def get_vm_created_by_date() -> dict:
     session = SessionLocal()
     try:
         import re
+        from datetime import timedelta
         from collections import Counter
         from sqlalchemy import func
 
@@ -218,12 +223,16 @@ def get_vm_created_by_date() -> dict:
             .group_by(VmInventoryRecord.source_host)
             .subquery()
         )
+        # Match all rows within 30 minutes of each source's latest discovered_at.
+        # New saves share one timestamp per batch, so this is exact for them;
+        # legacy rows have per-VM microsecond timestamps from the same run, and
+        # the window groups them as one snapshot.
         rows = (
             session.query(VmInventoryRecord.created_date)
             .join(
                 subq,
                 (VmInventoryRecord.source_host == subq.c.source_host)
-                & (VmInventoryRecord.discovered_at == subq.c.max_dt),
+                & (VmInventoryRecord.discovered_at >= subq.c.max_dt - timedelta(minutes=30)),
             )
             .all()
         )
@@ -276,6 +285,7 @@ def load_latest_inventory_all_hosts() -> list[dict]:
 
     session = SessionLocal()
     try:
+        from datetime import timedelta
         from sqlalchemy import func
         subq = (
             session.query(
@@ -285,12 +295,13 @@ def load_latest_inventory_all_hosts() -> list[dict]:
             .group_by(VmInventoryRecord.source_host)
             .subquery()
         )
+        # 30-minute window — see note in get_vm_created_by_date().
         rows = (
             session.query(VmInventoryRecord)
             .join(
                 subq,
                 (VmInventoryRecord.source_host == subq.c.source_host)
-                & (VmInventoryRecord.discovered_at == subq.c.max_dt),
+                & (VmInventoryRecord.discovered_at >= subq.c.max_dt - timedelta(minutes=30)),
             )
             .order_by(VmInventoryRecord.source_host, VmInventoryRecord.id)
             .all()
