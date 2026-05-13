@@ -27,7 +27,7 @@
     <div class="card-header" style="margin-bottom:.6rem">
       <h2 class="card-title">VMs Created per Day</h2>
       {% if daily_series %}
-      <span style="font-size:.7rem;color:var(--text-muted)">{{ daily_series|length }} days · VMware creation date</span>
+      <span style="font-size:.7rem;color:var(--text-muted)">Last {{ daily_series|length }} days · all ESXi / vCenter sources</span>
       {% endif %}
     </div>
     {% if daily_series %}
@@ -400,28 +400,34 @@
   });
   {% endif %}
 
-  // ── Daily VMs Created bar chart ─────────────────────────
+  // ── Daily VMs Created line chart (last 30 days, all sources) ──
   {% if daily_series %}
   const dailySeries = {{ daily_series | tojson }};
   const dailyCanvas = document.getElementById('dailyChart');
   if (dailyCanvas) {
-    const barW = Math.max(8, Math.min(22, Math.floor(dailyCanvas.parentElement.offsetWidth / dailySeries.length)));
-    dailyCanvas.parentElement.style.width = Math.max(dailyCanvas.parentElement.offsetWidth, dailySeries.length * barW + 40) + 'px';
     new Chart(dailyCanvas, {
-      type: 'bar',
+      type: 'line',
       data: {
         labels: dailySeries.map(d => d.date),
         datasets: [{
           label: 'VMs Created',
           data:  dailySeries.map(d => d.count),
-          backgroundColor: C.accentA + '.45)',
+          backgroundColor: C.accentA + '.18)',
           borderColor:     C.accent,
-          borderWidth: 1, borderRadius: 2,
+          borderWidth:     2,
+          pointRadius:     3,
+          pointHoverRadius: 5,
+          pointBackgroundColor: C.accent,
+          pointBorderColor: '#fff',
+          pointBorderWidth: 1,
+          tension: 0.3,
+          fill: true,
         }],
       },
       options: {
-        responsive: false,
+        responsive: true,
         maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
         plugins: {
           legend: { display: false },
           tooltip: {
@@ -435,12 +441,12 @@
           x: {
             grid: { display: false },
             ticks: {
-              maxTicksLimit: 24,
-              maxRotation: 45,
+              maxRotation: 0,
               font: { size: 9 },
               callback: function(val, idx) {
+                // Show day labels every ~3 days to keep the axis readable
                 const lbl = dailySeries[idx]?.date || '';
-                return idx % Math.ceil(dailySeries.length / 20) === 0 ? lbl.slice(5) : '';
+                return idx % 3 === 0 ? lbl.slice(5) : '';
               },
             },
           },

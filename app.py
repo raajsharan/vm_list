@@ -427,20 +427,19 @@ def create_app() -> Flask:
         sorted_vcenters = sorted(vc_map.items(), key=lambda x: x[1]["total"], reverse=True)
         sorted_os       = sorted(os_map.items(), key=lambda x: x[1], reverse=True)[:12]
 
-        # Daily VM creation trend (VMware created_date field)
+        # Daily VM creation trend over the last 30 days (VMware created_date field,
+        # aggregated across all ESXi/vCenter sources).
         import datetime as _dt
         created_by_date = database.get_vm_created_by_date()
-        all_dates       = sorted(created_by_date.keys())
-        if all_dates:
-            start = _dt.date.fromisoformat(all_dates[0])
-            end   = _dt.date.today()
-            daily_series = []
-            d = start
-            while d <= end:
-                ds = d.isoformat()
-                daily_series.append({"date": ds, "count": created_by_date.get(ds, 0)})
-                d += _dt.timedelta(days=1)
-        else:
+        end          = _dt.date.today()
+        start        = end - _dt.timedelta(days=29)   # 30-day inclusive window
+        daily_series = []
+        d = start
+        while d <= end:
+            ds = d.isoformat()
+            daily_series.append({"date": ds, "count": created_by_date.get(ds, 0)})
+            d += _dt.timedelta(days=1)
+        if not any(p["count"] for p in daily_series):
             daily_series = []
 
         return render_template(
