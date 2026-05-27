@@ -1,0 +1,390 @@
+{% extends "base.html" %}
+{% block title %}Asset Editor — VMware Inventory{% endblock %}
+
+{% block content %}
+<div class="page-asset-details">
+
+  <!-- ── Page header ── -->
+  <div class="inventory-header">
+    <div>
+      <div class="page-label">ASSET INTELLIGENCE</div>
+      <h1 class="page-title">Asset <span class="accent">Editor</span></h1>
+      <p class="hero-sub" style="margin-top:.4rem">
+        Editable per-VM overlay &nbsp;·&nbsp;
+        <span style="font-family:var(--mono)">{{ total }}</span> VMs
+        &nbsp;·&nbsp;
+        <span style="color:var(--green);font-family:var(--mono)">{{ edited_count }}</span> with saved edits
+        &nbsp;·&nbsp;
+        <span style="color:var(--text-muted);font-size:.75rem">edits saved locally; upstream Asset API is not modified</span>
+      </p>
+    </div>
+    <div class="inventory-actions">
+      <a href="{{ url_for('asset_details') }}" class="btn btn--secondary">← Asset Details</a>
+      <a href="{{ url_for('dashboard') }}" class="btn btn--outline">Dashboard</a>
+    </div>
+  </div>
+
+  <!-- ── Search row ── -->
+  <div class="ad-toolbar">
+    <div class="view-toggle" id="aeFilterTabs">
+      <button class="view-btn active" data-filter="all">
+        All <span class="ad-tab-count">{{ total }}</span>
+      </button>
+      <button class="view-btn" data-filter="edited">
+        Edited <span class="ad-tab-count">{{ edited_count }}</span>
+      </button>
+      <button class="view-btn" data-filter="unedited">
+        Unedited <span class="ad-tab-count">{{ total - edited_count }}</span>
+      </button>
+    </div>
+    <div class="filter-search" style="max-width:280px">
+      <span class="search-icon">⌕</span>
+      <input id="aeSearch" type="text" class="search-input" placeholder="Filter by name, IP, hostname…" autocomplete="off" />
+    </div>
+  </div>
+
+  <!-- ── Table ── -->
+  {% if vms %}
+  <div class="card" style="overflow:hidden;padding:0;margin-top:.75rem">
+    <div class="vm-scroll-wrap">
+      <table class="vm-table" id="aeTable">
+        <thead>
+          <tr>
+            <th>Asset Name</th>
+            <th>IP Address</th>
+            <th>Hostname</th>
+            <th>OS Type</th>
+            <th>OS Version</th>
+            <th>Power</th>
+            <th>Source / vCenter</th>
+            <th style="width:140px">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for vm in vms %}
+          <tr class="ae-row"
+              data-status="{{ 'edited' if vm.edit.has_override else 'unedited' }}"
+              data-search="{{ [vm.name, vm.hostname, vm.ip_addresses, vm.edit.asset_name, vm.edit.ip_address, vm.edit.hostname, vm.os_type, vm.get('source_host',''), vm.edit.updated_at]|join(' ')|lower }}"
+              data-source-host="{{ vm.get('source_host','') }}"
+              data-vm-name="{{ vm.name }}"
+              data-edit-asset-name="{{ vm.edit.asset_name }}"
+              data-edit-hostname="{{ vm.edit.hostname }}"
+              data-edit-ip-address="{{ vm.edit.ip_address }}"
+              data-edit-os-type="{{ vm.edit.os_type }}"
+              data-edit-os-version="{{ vm.edit.os_version }}"
+              data-edit-updated-at="{{ vm.edit.updated_at }}"
+              data-has-override="{{ '1' if vm.edit.has_override else '0' }}">
+
+            <td>
+              <span class="vm-name">{{ vm.edit.asset_name or vm.name }}</span>
+              {% if vm.edit.has_override %}
+                <span class="ae-edited-dot" title="Local edits saved {{ vm.edit.updated_at }}">●</span>
+              {% endif %}
+            </td>
+
+            <td>
+              {% if vm.edit.ip_address %}
+                <span class="ip-tag">{{ vm.edit.ip_address }}</span>
+              {% else %}
+                <span class="ad-blank">—</span>
+              {% endif %}
+            </td>
+
+            <td>
+              <span style="font-family:var(--mono);font-size:.78rem;color:var(--text-muted)">
+                {{ vm.edit.hostname if vm.edit.hostname else '—' }}
+              </span>
+            </td>
+
+            <td>
+              <span style="font-size:.77rem;color:var(--text-muted)">
+                {{ vm.edit.os_type if vm.edit.os_type else '—' }}
+              </span>
+            </td>
+
+            <td>
+              <span style="font-size:.77rem;color:var(--text-muted)">
+                {{ vm.edit.os_version if vm.edit.os_version else '—' }}
+              </span>
+            </td>
+
+            <td>
+              {% set pw = vm.power_state %}
+              <span class="power-badge power-badge--{{ pw }}">
+                {{ 'ON' if pw == 'poweredOn' else ('OFF' if pw == 'poweredOff' else pw|upper) }}
+              </span>
+            </td>
+
+            <td>
+              <span style="font-family:var(--mono);font-size:.72rem;color:var(--text-muted)">
+                {{ vm.get('source_host', '—') }}
+              </span>
+            </td>
+
+            <td>
+              <button type="button" class="btn btn--outline btn--xs ae-edit-btn">
+                ✎ Edit
+              </button>
+              {% if vm.edit.has_override %}
+              <form method="POST" action="{{ url_for('asset_editor_reset') }}"
+                    style="display:inline" class="ae-reset-form"
+                    onsubmit="return confirm('Revert local edits for this VM?');">
+                <input type="hidden" name="source_host" value="{{ vm.get('source_host','') }}">
+                <input type="hidden" name="vm_name"     value="{{ vm.name }}">
+                <button type="submit" class="btn btn--ghost btn--xs" title="Revert local edits">↺</button>
+              </form>
+              {% endif %}
+            </td>
+
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div id="aeNoResults" class="no-results" style="display:none">No VMs match the current filter.</div>
+  </div>
+  {% else %}
+  <div class="empty-state" style="margin-top:2rem">
+    <div class="empty-icon">◈</div>
+    <p>No VM data found. Run a discovery first.</p>
+    <a href="{{ url_for('credentials') }}" class="btn btn--outline" style="margin-top:1rem">Go to Credentials</a>
+  </div>
+  {% endif %}
+
+</div>
+
+<!-- ── Edit modal ── -->
+<div class="ae-modal-backdrop" id="aeModalBackdrop" hidden>
+  <div class="ae-modal" role="dialog" aria-modal="true" aria-labelledby="aeModalTitle">
+    <form method="POST" action="{{ url_for('asset_editor_save') }}" id="aeEditForm">
+      <div class="ae-modal-header">
+        <h2 id="aeModalTitle">Edit Asset</h2>
+        <button type="button" class="ae-modal-close" id="aeModalClose" aria-label="Close">✕</button>
+      </div>
+
+      <div class="ae-modal-body">
+        <input type="hidden" name="source_host" id="aeFieldSourceHost">
+        <input type="hidden" name="vm_name"     id="aeFieldVmName">
+
+        <div class="ae-field">
+          <label for="aeFieldAssetName">Asset Name <span class="ae-hint">(VM display name)</span></label>
+          <input type="text" name="asset_name" id="aeFieldAssetName" autocomplete="off">
+        </div>
+
+        <div class="ae-field">
+          <label for="aeFieldIpAddress">IP Address</label>
+          <input type="text" name="ip_address" id="aeFieldIpAddress" autocomplete="off" placeholder="e.g. 10.0.0.5">
+        </div>
+
+        <div class="ae-field">
+          <label for="aeFieldHostname">Hostname</label>
+          <input type="text" name="hostname" id="aeFieldHostname" autocomplete="off">
+        </div>
+
+        <div class="ae-field">
+          <label for="aeFieldOsType">OS Type</label>
+          <input type="text" name="os_type" id="aeFieldOsType" autocomplete="off" placeholder="e.g. Linux, Windows">
+        </div>
+
+        <div class="ae-field">
+          <label for="aeFieldOsVersion">OS Version</label>
+          <input type="text" name="os_version" id="aeFieldOsVersion" autocomplete="off">
+        </div>
+
+        <div class="ae-meta" id="aeMeta" hidden>
+          Last edited: <span id="aeMetaTime" style="font-family:var(--mono)"></span>
+        </div>
+      </div>
+
+      <div class="ae-modal-footer">
+        <button type="button" class="btn btn--ghost btn--sm" id="aeModalCancel">Cancel</button>
+        <button type="submit" class="btn btn--primary btn--sm">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<style>
+.ae-edited-dot {
+  color: var(--green);
+  font-size: .65rem;
+  margin-left: .35rem;
+  vertical-align: middle;
+}
+.ae-modal-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,.55);
+  z-index: 1000;
+  display: flex; align-items: center; justify-content: center;
+  padding: 1.5rem;
+}
+.ae-modal {
+  background: var(--bg-card);
+  border: 1px solid var(--border-hi);
+  border-radius: 8px;
+  width: 100%;
+  max-width: 520px;
+  box-shadow: 0 18px 50px rgba(0,0,0,.45);
+  display: flex; flex-direction: column;
+  max-height: 90vh;
+}
+.ae-modal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+}
+.ae-modal-header h2 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-family: var(--mono);
+  color: var(--accent);
+  letter-spacing: .04em;
+}
+.ae-modal-close {
+  background: transparent; border: 0; color: var(--text-muted);
+  font-size: 1rem; cursor: pointer; padding: .25rem .5rem;
+}
+.ae-modal-close:hover { color: var(--accent); }
+.ae-modal-body {
+  padding: 1.1rem 1.25rem;
+  overflow-y: auto;
+}
+.ae-field { margin-bottom: .85rem; }
+.ae-field label {
+  display: block;
+  font-size: .72rem;
+  letter-spacing: .05em;
+  color: var(--text-muted);
+  font-family: var(--mono);
+  margin-bottom: .3rem;
+  text-transform: uppercase;
+}
+.ae-hint {
+  font-size: .65rem;
+  color: var(--text-muted);
+  text-transform: none;
+  font-family: inherit;
+  letter-spacing: 0;
+}
+.ae-field input[type="text"] {
+  width: 100%;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: inherit;
+  padding: .5rem .65rem;
+  font-family: var(--mono);
+  font-size: .82rem;
+}
+.ae-field input[type="text"]:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-dim);
+}
+.ae-meta {
+  font-size: .7rem; color: var(--text-muted);
+  margin-top: .35rem;
+}
+.ae-modal-footer {
+  padding: .85rem 1.25rem;
+  border-top: 1px solid var(--border);
+  display: flex; justify-content: flex-end; gap: .6rem;
+}
+</style>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+
+  // ── Filter tabs + search ──────────────────────────────────
+  var currentFilter = 'all';
+  var rows          = document.querySelectorAll('.ae-row');
+  var noResults     = document.getElementById('aeNoResults');
+  var searchInput   = document.getElementById('aeSearch');
+
+  function applyFilters() {
+    var q = searchInput ? searchInput.value.toLowerCase().trim() : '';
+    var visible = 0;
+    rows.forEach(function (row) {
+      var statusOk = currentFilter === 'all' || row.dataset.status === currentFilter;
+      var searchOk = !q || (row.dataset.search || '').includes(q);
+      var show = statusOk && searchOk;
+      row.style.display = show ? '' : 'none';
+      if (show) visible++;
+    });
+    if (noResults) noResults.style.display = visible === 0 ? '' : 'none';
+  }
+
+  document.querySelectorAll('#aeFilterTabs .view-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      document.querySelectorAll('#aeFilterTabs .view-btn').forEach(function (b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      currentFilter = btn.dataset.filter;
+      applyFilters();
+    });
+  });
+
+  if (searchInput) searchInput.addEventListener('input', applyFilters);
+
+  // ── Modal ─────────────────────────────────────────────────
+  var backdrop   = document.getElementById('aeModalBackdrop');
+  var btnClose   = document.getElementById('aeModalClose');
+  var btnCancel  = document.getElementById('aeModalCancel');
+  var fSource    = document.getElementById('aeFieldSourceHost');
+  var fVmName    = document.getElementById('aeFieldVmName');
+  var fAsset     = document.getElementById('aeFieldAssetName');
+  var fIp        = document.getElementById('aeFieldIpAddress');
+  var fHost      = document.getElementById('aeFieldHostname');
+  var fOsType    = document.getElementById('aeFieldOsType');
+  var fOsVersion = document.getElementById('aeFieldOsVersion');
+  var titleEl    = document.getElementById('aeModalTitle');
+  var metaEl     = document.getElementById('aeMeta');
+  var metaTime   = document.getElementById('aeMetaTime');
+
+  function openModal(row) {
+    fSource.value    = row.dataset.sourceHost   || '';
+    fVmName.value    = row.dataset.vmName       || '';
+    fAsset.value     = row.dataset.editAssetName || '';
+    fIp.value        = row.dataset.editIpAddress || '';
+    fHost.value      = row.dataset.editHostname  || '';
+    fOsType.value    = row.dataset.editOsType    || '';
+    fOsVersion.value = row.dataset.editOsVersion || '';
+    titleEl.textContent = 'Edit Asset: ' + (row.dataset.vmName || '');
+
+    var updated = row.dataset.editUpdatedAt || '';
+    if (row.dataset.hasOverride === '1' && updated) {
+      metaEl.hidden = false;
+      metaTime.textContent = updated;
+    } else {
+      metaEl.hidden = true;
+    }
+
+    backdrop.hidden = false;
+    setTimeout(function () { fAsset.focus(); fAsset.select(); }, 30);
+  }
+
+  function closeModal() { backdrop.hidden = true; }
+
+  document.querySelectorAll('.ae-edit-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var row = btn.closest('.ae-row');
+      if (row) openModal(row);
+    });
+  });
+
+  if (btnClose)  btnClose.addEventListener('click', closeModal);
+  if (btnCancel) btnCancel.addEventListener('click', closeModal);
+  if (backdrop) {
+    backdrop.addEventListener('click', function (e) {
+      if (e.target === backdrop) closeModal();
+    });
+  }
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && !backdrop.hidden) closeModal();
+  });
+
+})();
+</script>
+{% endblock %}

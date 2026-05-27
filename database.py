@@ -82,6 +82,20 @@ class VmInventoryRecord(Base):
     tools_status = Column(String(64))
 
 
+class VmAssetEdit(Base):
+    __tablename__ = "vm_asset_edits"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    source_host = Column(String(255), nullable=False)
+    vm_name = Column(String(255), nullable=False)
+    asset_name = Column(String(255))
+    hostname = Column(String(255))
+    ip_address = Column(String(255))
+    os_type = Column(String(255))
+    os_version = Column(Text)
+    updated_at = Column(DateTime)
+
+
 class CredentialRecord(Base):
     __tablename__ = "credentials"
 
@@ -269,6 +283,92 @@ def get_vm_created_by_date() -> dict:
     except SQLAlchemyError as exc:
         logger.exception("Failed to get VM creation dates: %s", exc)
         return {}
+    finally:
+        session.close()
+
+
+def _edit_key(source_host: str, vm_name: str) -> str:
+    return f"{(source_host or '').strip()}|||{(vm_name or '').strip()}".lower()
+
+
+def load_asset_edits() -> dict:
+    """
+    Returns {edit_key: {asset_name, hostname, ip_address, os_type, os_version,
+    updated_at}} for every saved edit. Empty if DB not configured.
+    """
+    if SessionLocal is None:
+        return {}
+    session = SessionLocal()
+    try:
+        rows = session.query(VmAssetEdit).all()
+        out: dict = {}
+        for r in rows:
+            out[_edit_key(r.source_host, r.vm_name)] = {
+                "asset_name": r.asset_name or "",
+                "hostname":   r.hostname   or "",
+                "ip_address": r.ip_address or "",
+                "os_type":    r.os_type    or "",
+                "os_version": r.os_version or "",
+                "updated_at": r.updated_at.strftime("%Y-%m-%d %H:%M UTC") if r.updated_at else "",
+            }
+        return out
+    except SQLAlchemyError as exc:
+        logger.exception("Failed to load asset edits: %s", exc)
+        return {}
+    finally:
+        session.close()
+
+
+def save_asset_edit(source_host: str, vm_name: str, fields: dict) -> bool:
+    """
+    Upsert a per-VM editable overlay. Empty strings clear the field.
+    Returns True on success.
+    """
+    if SessionLocal is None:
+        logger.warning("Cannot save asset edit: DB not configured")
+        return False
+    if not source_host or not vm_name:
+        return False
+    session = SessionLocal()
+    try:
+        row = (session.query(VmAssetEdit)
+               .filter(VmAssetEdit.source_host == source_host,
+                       VmAssetEdit.vm_name     == vm_name)
+               .one_or_none())
+        if row is None:
+            row = VmAssetEdit(source_host=source_host, vm_name=vm_name)
+            session.add(row)
+        row.asset_name = (fields.get("asset_name") or "").strip()
+        row.hostname   = (fields.get("hostname")   or "").strip()
+        row.ip_address = (fields.get("ip_address") or "").strip()
+        row.os_type    = (fields.get("os_type")    or "").strip()
+        row.os_version = (fields.get("os_version") or "").strip()
+        row.updated_at = datetime.utcnow()
+        session.commit()
+        return True
+    except SQLAlchemyError as exc:
+        session.rollback()
+        logger.exception("Failed to save asset edit: %s", exc)
+        return False
+    finally:
+        session.close()
+
+
+def delete_asset_edit(source_host: str, vm_name: str) -> bool:
+    if SessionLocal is None:
+        return False
+    session = SessionLocal()
+    try:
+        (session.query(VmAssetEdit)
+         .filter(VmAssetEdit.source_host == source_host,
+                 VmAssetEdit.vm_name     == vm_name)
+         .delete())
+        session.commit()
+        return True
+    except SQLAlchemyError as exc:
+        session.rollback()
+        logger.exception("Failed to delete asset edit: %s", exc)
+        return False
     finally:
         session.close()
 

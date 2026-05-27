@@ -675,6 +675,79 @@ def create_app() -> Flask:
         return redirect(url_for("asset_details"))
 
     # -----------------------------------------------------------------------
+    # Asset Editor — replica of Asset Details with editable overlay per VM
+    # Edits are saved to the local vm_asset_edits table only; the upstream
+    # Asset Inventory API is never modified.
+    # -----------------------------------------------------------------------
+
+    _EDITABLE_FIELDS = ("asset_name", "hostname", "ip_address", "os_type", "os_version")
+
+    @app.route("/asset-editor", methods=["GET"])
+    def asset_editor():
+        raw_vms = database.load_latest_inventory_all_hosts()
+        if not raw_vms:
+            raw_vms = cache_store.load_all_hosts()
+
+        edits = database.load_asset_edits()
+
+        vms = []
+        for vm in raw_vms:
+            display = data_processor.normalise_for_display([vm])[0]
+            source_host = display.get("source_host", "")
+            vm_name = display.get("name", "")
+            key = f"{source_host}|||{vm_name}".lower()
+            edit = edits.get(key, {})
+
+            display["edit"] = {
+                "asset_name": edit.get("asset_name") or display.get("name", ""),
+                "hostname":   edit.get("hostname")   or (display.get("hostname") if display.get("hostname") != "Not Available" else ""),
+                "ip_address": edit.get("ip_address") or (
+                    display.get("ip_addresses", "").split(" | ")[0]
+                    if display.get("ip_addresses") and display.get("ip_addresses") != "Not Available" else ""
+                ),
+                "os_type":    edit.get("os_type")    or (display.get("os_type") if display.get("os_type") != "Not Available" else ""),
+                "os_version": edit.get("os_version") or (display.get("os_version") if display.get("os_version") != "Not Available" else ""),
+                "updated_at": edit.get("updated_at", ""),
+                "has_override": bool(edit),
+            }
+            vms.append(display)
+
+        return render_template(
+            "asset_editor.html",
+            vms=vms,
+            total=len(vms),
+            edited_count=sum(1 for v in vms if v["edit"]["has_override"]),
+        )
+
+    @app.route("/asset-editor/save", methods=["POST"])
+    def asset_editor_save():
+        source_host = request.form.get("source_host", "").strip()
+        vm_name     = request.form.get("vm_name", "").strip()
+        if not source_host or not vm_name:
+            flash("Missing VM identifier — cannot save edit.", "error")
+            return redirect(url_for("asset_editor"))
+
+        fields = {k: request.form.get(k, "").strip() for k in _EDITABLE_FIELDS}
+        if database.save_asset_edit(source_host, vm_name, fields):
+            flash(f"Saved edits for {vm_name}.", "success")
+        else:
+            flash(f"Failed to save edits for {vm_name}. Check DATABASE_URL configuration.", "error")
+        return redirect(url_for("asset_editor"))
+
+    @app.route("/asset-editor/reset", methods=["POST"])
+    def asset_editor_reset():
+        source_host = request.form.get("source_host", "").strip()
+        vm_name     = request.form.get("vm_name", "").strip()
+        if not source_host or not vm_name:
+            flash("Missing VM identifier — cannot reset.", "error")
+            return redirect(url_for("asset_editor"))
+        if database.delete_asset_edit(source_host, vm_name):
+            flash(f"Reverted edits for {vm_name}.", "info")
+        else:
+            flash(f"Failed to revert edits for {vm_name}.", "error")
+        return redirect(url_for("asset_editor"))
+
+    # -----------------------------------------------------------------------
     # All VMs — consolidated multi-host VM list (formerly "Dashboard")
     # -----------------------------------------------------------------------
 
