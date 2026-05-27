@@ -105,7 +105,9 @@
             </td>
 
             <td>
-              {% if vm.display_ips %}
+              {% if vm.edit.has_override and vm.edit.ip_address %}
+                <span class="ip-tag ip-tag--edited" title="Local edit">{{ vm.edit.ip_address }}</span>
+              {% elif vm.display_ips %}
                 {% for entry in vm.display_ips[:2] %}
                   <span class="ip-tag{% if entry.src == 'mac' %} ip-tag--mapped{% endif %}"
                         {% if entry.src == 'mac' %}title="IP from MAC Lookup file"{% endif %}>{{ entry.ip }}</span>
@@ -123,15 +125,29 @@
             </td>
 
             <td>
-              <span style="font-family:var(--mono);font-size:.78rem;color:var(--text-muted)">
-                {{ vm.hostname if vm.hostname and vm.hostname != 'Not Available' else '—' }}
-              </span>
+              {% set hostname_shown = vm.edit.hostname if (vm.edit.has_override and vm.edit.hostname)
+                                       else (vm.hostname if vm.hostname and vm.hostname != 'Not Available' else '') %}
+              {% if hostname_shown %}
+                <span style="font-family:var(--mono);font-size:.78rem;color:var(--text-muted)"
+                      {% if vm.edit.has_override and vm.edit.hostname %}class="ae-edited-val" title="Local edit"{% endif %}>
+                  {{ hostname_shown }}
+                </span>
+              {% else %}
+                <span class="ad-blank">—</span>
+              {% endif %}
             </td>
 
             <td>
-              <span style="font-size:.77rem;color:var(--text-muted)">
-                {{ vm.os_type if vm.os_type and vm.os_type != 'Not Available' else '—' }}
-              </span>
+              {% set os_shown = vm.edit.os_type if (vm.edit.has_override and vm.edit.os_type)
+                                 else (vm.os_type if vm.os_type and vm.os_type != 'Not Available' else '') %}
+              {% if os_shown %}
+                <span style="font-size:.77rem;color:var(--text-muted)"
+                      {% if vm.edit.has_override and vm.edit.os_type %}class="ae-edited-val" title="Local edit"{% endif %}>
+                  {{ os_shown }}
+                </span>
+              {% else %}
+                <span class="ad-blank">—</span>
+              {% endif %}
             </td>
 
             <td>
@@ -280,6 +296,15 @@
   font-size: .65rem;
   margin-left: .35rem;
   vertical-align: middle;
+}
+.ip-tag--edited {
+  background: var(--green-dim);
+  border-color: var(--green);
+  color: var(--green);
+}
+.ae-edited-val {
+  color: var(--green) !important;
+  font-weight: 500;
 }
 .ae-locked {
   font-size: .9rem;
