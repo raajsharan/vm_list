@@ -805,10 +805,11 @@ def create_app() -> Flask:
             return redirect(url_for("asset_editor"))
 
         fields = {k: request.form.get(k, "").strip() for k in _EDITABLE_FIELDS}
-        if database.save_asset_edit(source_host, vm_name, fields):
+        ok, err = database.save_asset_edit(source_host, vm_name, fields)
+        if ok:
             flash(f"Saved edits for {vm_name}.", "success")
         else:
-            flash(f"Failed to save edits for {vm_name}. Check DATABASE_URL configuration.", "error")
+            flash(f"Failed to save edits for {vm_name}: {err}", "error")
         return redirect(url_for("asset_editor"))
 
     @app.route("/asset-editor/reset", methods=["POST"])

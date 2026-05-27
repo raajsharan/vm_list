@@ -319,18 +319,26 @@ def load_asset_edits() -> dict:
         session.close()
 
 
-def save_asset_edit(source_host: str, vm_name: str, fields: dict) -> bool:
+def save_asset_edit(source_host: str, vm_name: str, fields: dict) -> tuple[bool, str]:
     """
     Upsert a per-VM editable overlay. Empty strings clear the field.
-    Returns True on success.
+    Returns (success, error_message).
     """
     if SessionLocal is None:
-        logger.warning("Cannot save asset edit: DB not configured")
-        return False
+        return False, "Database is not configured (DATABASE_URL is empty or unreachable)."
     if not source_host or not vm_name:
-        return False
+        return False, "source_host and vm_name are required."
+
     session = SessionLocal()
     try:
+        # Defensive: make sure the vm_asset_edits table exists. This is a no-op
+        # if it was already created at app startup; it covers the case where
+        # the service was running before this feature was deployed.
+        try:
+            VmAssetEdit.__table__.create(bind=engine, checkfirst=True)
+        except SQLAlchemyError:
+            pass
+
         row = (session.query(VmAssetEdit)
                .filter(VmAssetEdit.source_host == source_host,
                        VmAssetEdit.vm_name     == vm_name)
@@ -345,11 +353,16 @@ def save_asset_edit(source_host: str, vm_name: str, fields: dict) -> bool:
         row.os_version = (fields.get("os_version") or "").strip()
         row.updated_at = datetime.utcnow()
         session.commit()
-        return True
+        return True, ""
     except SQLAlchemyError as exc:
         session.rollback()
         logger.exception("Failed to save asset edit: %s", exc)
-        return False
+        # Surface the root cause to the caller — strip the SQLAlchemy URL noise
+        msg = str(getattr(exc, "orig", exc)) or str(exc)
+        return False, msg[:300]
+    except Exception as exc:
+        logger.exception("Unexpected error saving asset edit: %s", exc)
+        return False, str(exc)[:300]
     finally:
         session.close()
 
