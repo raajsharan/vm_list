@@ -7,6 +7,7 @@ Uses DATABASE_URL from the environment to connect to PostgreSQL.
 
 import json
 import logging
+import urllib.parse
 from datetime import datetime
 from typing import Optional
 from cryptography.fernet import Fernet
@@ -120,10 +121,32 @@ class SchedulerRecord(Base):
     enabled = Column(String(5), default="true")
 
 
+def build_url_from_env() -> Optional[str]:
+    """
+    Build a SQLAlchemy/psycopg URL from individual DB_* env vars, percent-encoding
+    the user/password so special characters like '@' or ':' are safe.
+
+    Returns None if the required vars are not set.
+    """
+    user     = os.environ.get("DB_USER")
+    password = os.environ.get("DB_PASSWORD", "")
+    host     = os.environ.get("DB_HOST", "localhost")
+    port     = os.environ.get("DB_PORT", "5432")
+    name     = os.environ.get("DB_NAME")
+    if not user or not name:
+        return None
+    u = urllib.parse.quote(user, safe="")
+    p = urllib.parse.quote(password, safe="")
+    return f"postgresql+psycopg://{u}:{p}@{host}:{port}/{name}"
+
+
 def init_app(database_url: Optional[str]):
     global engine, SessionLocal
+    # Prefer the explicit DATABASE_URL (back-compat); otherwise build from DB_*.
     if not database_url:
-        logger.info("DATABASE_URL not set; persistence disabled.")
+        database_url = build_url_from_env()
+    if not database_url:
+        logger.info("Database not configured (set DB_HOST/DB_NAME/DB_USER/DB_PASSWORD); persistence disabled.")
         return
 
     try:
@@ -325,7 +348,7 @@ def save_asset_edit(source_host: str, vm_name: str, fields: dict) -> tuple[bool,
     Returns (success, error_message).
     """
     if SessionLocal is None:
-        return False, "Database is not configured (DATABASE_URL is empty or unreachable)."
+        return False, "Database is not configured (set DB_HOST/DB_NAME/DB_USER/DB_PASSWORD in .env)."
     if not source_host or not vm_name:
         return False, "source_host and vm_name are required."
 
