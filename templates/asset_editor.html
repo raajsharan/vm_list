@@ -10,12 +10,17 @@
       <div class="page-label">ASSET INTELLIGENCE</div>
       <h1 class="page-title">Asset <span class="accent">Editor</span></h1>
       <p class="hero-sub" style="margin-top:.4rem">
-        Editable per-VM overlay &nbsp;·&nbsp;
         <span style="font-family:var(--mono)">{{ total }}</span> VMs
-        &nbsp;·&nbsp;
-        <span style="color:var(--green);font-family:var(--mono)">{{ edited_count }}</span> with saved edits
-        &nbsp;·&nbsp;
-        <span style="color:var(--text-muted);font-size:.75rem">edits saved locally; upstream Asset API is not modified</span>
+        {% if asset_configured %}
+        &nbsp;·&nbsp; <span style="color:var(--green);font-family:var(--mono)">{{ stats.asset_inv + stats.both }}</span> in Asset Inv
+        &nbsp;·&nbsp; <span style="color:var(--accent);font-family:var(--mono)">{{ stats.ext_asset_inv + stats.both }}</span> in Ext. Asset Inv
+        &nbsp;·&nbsp; <span style="color:var(--red);font-family:var(--mono)">{{ stats.not_found }}</span> not found
+        {% endif %}
+        &nbsp;·&nbsp; <span style="color:var(--green);font-family:var(--mono)">{{ edited_count }}</span> with saved edits
+        <br>
+        <span style="color:var(--text-muted);font-size:.72rem">
+          Edit is enabled only for "Not Found" assets — others already exist in the Asset Inventory. Edits are saved locally; the Asset API is never modified.
+        </span>
       </p>
     </div>
     <div class="inventory-actions">
@@ -24,17 +29,36 @@
     </div>
   </div>
 
-  <!-- ── Search row ── -->
+  {% if not asset_configured %}
+  <div class="flash flash--warning" style="margin-bottom:1.5rem">
+    <span class="flash-icon">⚠</span>
+    Asset Inventory API is not configured. Every row is treated as "Not Found" and is editable.
+    <a href="{{ url_for('settings') }}" style="color:inherit;margin-left:.5rem;text-decoration:underline">Configure in Settings →</a>
+  </div>
+  {% endif %}
+
+  <!-- ── Filter tabs + search row ── -->
   <div class="ad-toolbar">
     <div class="view-toggle" id="aeFilterTabs">
       <button class="view-btn active" data-filter="all">
         All <span class="ad-tab-count">{{ total }}</span>
       </button>
+      {% if asset_configured %}
+      <button class="view-btn" data-filter="asset_inv">
+        Asset Inv. <span class="ad-tab-count">{{ stats.asset_inv }}</span>
+      </button>
+      <button class="view-btn" data-filter="ext_asset_inv">
+        Ext. Asset Inv. <span class="ad-tab-count">{{ stats.ext_asset_inv }}</span>
+      </button>
+      <button class="view-btn" data-filter="both">
+        Both <span class="ad-tab-count">{{ stats.both }}</span>
+      </button>
+      <button class="view-btn" data-filter="not_found">
+        Not Found <span class="ad-tab-count">{{ stats.not_found }}</span>
+      </button>
+      {% endif %}
       <button class="view-btn" data-filter="edited">
         Edited <span class="ad-tab-count">{{ edited_count }}</span>
-      </button>
-      <button class="view-btn" data-filter="unedited">
-        Unedited <span class="ad-tab-count">{{ total - edited_count }}</span>
       </button>
     </div>
     <div class="filter-search" style="max-width:280px">
@@ -50,30 +74,28 @@
       <table class="vm-table" id="aeTable">
         <thead>
           <tr>
-            <th>Asset Name</th>
-            <th>IP Address</th>
+            <th>VM Name</th>
+            <th>IP Addresses</th>
             <th>Hostname</th>
             <th>OS Type</th>
-            <th>OS Version</th>
             <th>Power</th>
+            {% if asset_configured %}
+            <th>Asset Status</th>
+            <th>Asset IP</th>
+            <th>Asset Hostname</th>
+            {% endif %}
             <th>Source / vCenter</th>
-            <th style="width:140px">Actions</th>
+            <th style="width:120px">Actions</th>
           </tr>
         </thead>
         <tbody>
           {% for vm in vms %}
+          {% set rec = vm.asset_record %}
           <tr class="ae-row"
-              data-status="{{ 'edited' if vm.edit.has_override else 'unedited' }}"
-              data-search="{{ [vm.name, vm.hostname, vm.ip_addresses, vm.edit.asset_name, vm.edit.ip_address, vm.edit.hostname, vm.os_type, vm.get('source_host',''), vm.edit.updated_at]|join(' ')|lower }}"
-              data-source-host="{{ vm.get('source_host','') }}"
-              data-vm-name="{{ vm.name }}"
-              data-edit-asset-name="{{ vm.edit.asset_name }}"
-              data-edit-hostname="{{ vm.edit.hostname }}"
-              data-edit-ip-address="{{ vm.edit.ip_address }}"
-              data-edit-os-type="{{ vm.edit.os_type }}"
-              data-edit-os-version="{{ vm.edit.os_version }}"
-              data-edit-updated-at="{{ vm.edit.updated_at }}"
-              data-has-override="{{ '1' if vm.edit.has_override else '0' }}">
+              data-status="{{ vm.asset_status }}"
+              data-edited="{{ '1' if vm.edit.has_override else '0' }}"
+              data-can-edit="{{ '1' if vm.can_edit else '0' }}"
+              data-search="{{ [vm.name, vm.hostname, vm.ip_addresses, vm.mapped_ips, vm.os_type, vm.get('source_host',''), rec.get('hostname',''), rec.get('ip_address','')]|join(' ')|lower }}">
 
             <td>
               <span class="vm-name">{{ vm.edit.asset_name or vm.name }}</span>
@@ -83,8 +105,18 @@
             </td>
 
             <td>
-              {% if vm.edit.ip_address %}
-                <span class="ip-tag">{{ vm.edit.ip_address }}</span>
+              {% if vm.display_ips %}
+                {% for entry in vm.display_ips[:2] %}
+                  <span class="ip-tag{% if entry.src == 'mac' %} ip-tag--mapped{% endif %}"
+                        {% if entry.src == 'mac' %}title="IP from MAC Lookup file"{% endif %}>{{ entry.ip }}</span>
+                {% endfor %}
+                {% if vm.display_ips|length > 2 %}
+                <button class="ip-more"
+                        data-ips="{{ vm.display_ips[2:]|map(attribute='ip')|join('\n') }}"
+                        title="{{ vm.display_ips|length - 2 }} more IPs">
+                  +{{ vm.display_ips|length - 2 }}
+                </button>
+                {% endif %}
               {% else %}
                 <span class="ad-blank">—</span>
               {% endif %}
@@ -92,19 +124,13 @@
 
             <td>
               <span style="font-family:var(--mono);font-size:.78rem;color:var(--text-muted)">
-                {{ vm.edit.hostname if vm.edit.hostname else '—' }}
+                {{ vm.hostname if vm.hostname and vm.hostname != 'Not Available' else '—' }}
               </span>
             </td>
 
             <td>
               <span style="font-size:.77rem;color:var(--text-muted)">
-                {{ vm.edit.os_type if vm.edit.os_type else '—' }}
-              </span>
-            </td>
-
-            <td>
-              <span style="font-size:.77rem;color:var(--text-muted)">
-                {{ vm.edit.os_version if vm.edit.os_version else '—' }}
+                {{ vm.os_type if vm.os_type and vm.os_type != 'Not Available' else '—' }}
               </span>
             </td>
 
@@ -115,6 +141,36 @@
               </span>
             </td>
 
+            {% if asset_configured %}
+            <td>
+              {% if vm.asset_status == 'asset_inv' %}
+                <span class="asset-badge asset-badge--main">Asset Inventory</span>
+              {% elif vm.asset_status == 'ext_asset_inv' %}
+                <span class="asset-badge asset-badge--ext">Ext. Asset Inv.</span>
+              {% elif vm.asset_status == 'both' %}
+                <span class="asset-badge asset-badge--both">Both</span>
+              {% else %}
+                <span class="asset-badge asset-badge--none">Not Found</span>
+              {% endif %}
+            </td>
+
+            <td>
+              {% if rec.get('ip_address') %}
+                <span class="ip-tag">{{ rec.ip_address }}</span>
+              {% else %}
+                <span class="ad-blank">—</span>
+              {% endif %}
+            </td>
+
+            <td>
+              {% if rec.get('hostname') %}
+                <span style="font-family:var(--mono);font-size:.75rem">{{ rec.hostname }}</span>
+              {% else %}
+                <span class="ad-blank">—</span>
+              {% endif %}
+            </td>
+            {% endif %}
+
             <td>
               <span style="font-family:var(--mono);font-size:.72rem;color:var(--text-muted)">
                 {{ vm.get('source_host', '—') }}
@@ -122,17 +178,31 @@
             </td>
 
             <td>
-              <button type="button" class="btn btn--outline btn--xs ae-edit-btn">
-                ✎ Edit
-              </button>
-              {% if vm.edit.has_override %}
-              <form method="POST" action="{{ url_for('asset_editor_reset') }}"
-                    style="display:inline" class="ae-reset-form"
-                    onsubmit="return confirm('Revert local edits for this VM?');">
-                <input type="hidden" name="source_host" value="{{ vm.get('source_host','') }}">
-                <input type="hidden" name="vm_name"     value="{{ vm.name }}">
-                <button type="submit" class="btn btn--ghost btn--xs" title="Revert local edits">↺</button>
-              </form>
+              {% if vm.can_edit %}
+                <button type="button"
+                        class="btn btn--outline btn--xs ae-edit-btn"
+                        data-source-host="{{ vm.get('source_host','') }}"
+                        data-vm-name="{{ vm.name }}"
+                        data-asset-name="{{ vm.edit.asset_name }}"
+                        data-ip-address="{{ vm.edit.ip_address }}"
+                        data-hostname="{{ vm.edit.hostname }}"
+                        data-os-type="{{ vm.edit.os_type }}"
+                        data-os-version="{{ vm.edit.os_version }}"
+                        data-updated-at="{{ vm.edit.updated_at }}"
+                        data-has-override="{{ '1' if vm.edit.has_override else '0' }}">
+                  ✎ Edit
+                </button>
+                {% if vm.edit.has_override %}
+                <form method="POST" action="{{ url_for('asset_editor_reset') }}"
+                      style="display:inline" class="ae-reset-form"
+                      onsubmit="return confirm('Revert local edits for this VM?');">
+                  <input type="hidden" name="source_host" value="{{ vm.get('source_host','') }}">
+                  <input type="hidden" name="vm_name"     value="{{ vm.name }}">
+                  <button type="submit" class="btn btn--ghost btn--xs" title="Revert local edits">↺</button>
+                </form>
+                {% endif %}
+              {% else %}
+                <span class="ae-locked" title="Asset already exists in upstream inventory — editing disabled">🔒</span>
               {% endif %}
             </td>
 
@@ -154,7 +224,7 @@
 </div>
 
 <!-- ── Edit modal ── -->
-<div class="ae-modal-backdrop" id="aeModalBackdrop" hidden>
+<div class="ae-modal-backdrop" id="aeModalBackdrop" aria-hidden="true">
   <div class="ae-modal" role="dialog" aria-modal="true" aria-labelledby="aeModalTitle">
     <form method="POST" action="{{ url_for('asset_editor_save') }}" id="aeEditForm">
       <div class="ae-modal-header">
@@ -211,13 +281,24 @@
   margin-left: .35rem;
   vertical-align: middle;
 }
+.ae-locked {
+  font-size: .9rem;
+  color: var(--text-muted);
+  opacity: .55;
+  padding: 0 .35rem;
+  cursor: not-allowed;
+}
+/* Modal: hidden by default, shown only when .open is present.
+   Using a class avoids the [hidden] vs display:flex specificity trap. */
 .ae-modal-backdrop {
   position: fixed; inset: 0;
   background: rgba(0,0,0,.55);
   z-index: 1000;
-  display: flex; align-items: center; justify-content: center;
+  display: none;
+  align-items: center; justify-content: center;
   padding: 1.5rem;
 }
+.ae-modal-backdrop.open { display: flex; }
 .ae-modal {
   background: var(--bg-card);
   border: 1px solid var(--border-hi);
@@ -304,11 +385,21 @@
   var noResults     = document.getElementById('aeNoResults');
   var searchInput   = document.getElementById('aeSearch');
 
+  function rowMatchesFilter(row, filter) {
+    if (filter === 'all')      return true;
+    if (filter === 'edited')   return row.dataset.edited === '1';
+    if (filter === 'unedited') return row.dataset.edited !== '1';
+    // asset status filters: asset_inv / ext_asset_inv / both / not_found
+    if (filter === 'asset_inv')     return row.dataset.status === 'asset_inv'     || row.dataset.status === 'both';
+    if (filter === 'ext_asset_inv') return row.dataset.status === 'ext_asset_inv' || row.dataset.status === 'both';
+    return row.dataset.status === filter;
+  }
+
   function applyFilters() {
     var q = searchInput ? searchInput.value.toLowerCase().trim() : '';
     var visible = 0;
     rows.forEach(function (row) {
-      var statusOk = currentFilter === 'all' || row.dataset.status === currentFilter;
+      var statusOk = rowMatchesFilter(row, currentFilter);
       var searchOk = !q || (row.dataset.search || '').includes(q);
       var show = statusOk && searchOk;
       row.style.display = show ? '' : 'none';
@@ -343,35 +434,42 @@
   var metaEl     = document.getElementById('aeMeta');
   var metaTime   = document.getElementById('aeMetaTime');
 
-  function openModal(row) {
-    fSource.value    = row.dataset.sourceHost   || '';
-    fVmName.value    = row.dataset.vmName       || '';
-    fAsset.value     = row.dataset.editAssetName || '';
-    fIp.value        = row.dataset.editIpAddress || '';
-    fHost.value      = row.dataset.editHostname  || '';
-    fOsType.value    = row.dataset.editOsType    || '';
-    fOsVersion.value = row.dataset.editOsVersion || '';
-    titleEl.textContent = 'Edit Asset: ' + (row.dataset.vmName || '');
+  function openModal(btn) {
+    var sourceHost = btn.dataset.sourceHost || '';
+    var vmName     = btn.dataset.vmName     || '';
+    if (!vmName) {
+      alert('Cannot open editor: this row has no VM name.');
+      return;
+    }
+    fSource.value    = sourceHost;
+    fVmName.value    = vmName;
+    fAsset.value     = btn.dataset.assetName || '';
+    fIp.value        = btn.dataset.ipAddress || '';
+    fHost.value      = btn.dataset.hostname  || '';
+    fOsType.value    = btn.dataset.osType    || '';
+    fOsVersion.value = btn.dataset.osVersion || '';
+    titleEl.textContent = 'Edit Asset: ' + vmName;
 
-    var updated = row.dataset.editUpdatedAt || '';
-    if (row.dataset.hasOverride === '1' && updated) {
+    var updated = btn.dataset.updatedAt || '';
+    if (btn.dataset.hasOverride === '1' && updated) {
       metaEl.hidden = false;
       metaTime.textContent = updated;
     } else {
       metaEl.hidden = true;
     }
 
-    backdrop.hidden = false;
+    backdrop.classList.add('open');
+    backdrop.setAttribute('aria-hidden', 'false');
     setTimeout(function () { fAsset.focus(); fAsset.select(); }, 30);
   }
 
-  function closeModal() { backdrop.hidden = true; }
+  function closeModal() {
+    backdrop.classList.remove('open');
+    backdrop.setAttribute('aria-hidden', 'true');
+  }
 
   document.querySelectorAll('.ae-edit-btn').forEach(function (btn) {
-    btn.addEventListener('click', function () {
-      var row = btn.closest('.ae-row');
-      if (row) openModal(row);
-    });
+    btn.addEventListener('click', function () { openModal(btn); });
   });
 
   if (btnClose)  btnClose.addEventListener('click', closeModal);
@@ -382,8 +480,19 @@
     });
   }
   document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape' && !backdrop.hidden) closeModal();
+    if (e.key === 'Escape' && backdrop.classList.contains('open')) closeModal();
   });
+
+  // Form-submit guard — refuse to submit without a vm_name
+  var form = document.getElementById('aeEditForm');
+  if (form) {
+    form.addEventListener('submit', function (e) {
+      if (!fVmName.value.trim()) {
+        e.preventDefault();
+        alert('VM identifier missing — please click Edit on a row before saving.');
+      }
+    });
+  }
 
 })();
 </script>

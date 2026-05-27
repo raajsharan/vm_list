@@ -690,33 +690,110 @@ def create_app() -> Flask:
 
         edits = database.load_asset_edits()
 
+        asset_configured = asset_api.is_configured()
+        if asset_configured:
+            full_records = asset_api.fetch_assets_full()
+            asset_ip_map = asset_api.fetch_all_asset_ips()
+        else:
+            full_records = {}
+            asset_ip_map = {}
+
+        # MAC mapping for IP enrichment — mirrors asset_details
+        mac_mapping = mac_lookup_store.load_mapping()
+        mac_index   = mac_lookup_store.build_index(mac_mapping)
+
         vms = []
+        stats = {"total": 0, "asset_inv": 0, "ext_asset_inv": 0, "both": 0, "not_found": 0}
+
         for vm in raw_vms:
             display = data_processor.normalise_for_display([vm])[0]
             source_host = display.get("source_host", "")
-            vm_name = display.get("name", "")
+            vm_name     = display.get("name", "")
+            stats["total"] += 1
+
+            # MAC-mapped IPs
+            macs = vm.get("macs", [])
+            if isinstance(macs, str):
+                macs = [m.strip() for m in macs.split("|") if m.strip()]
+            mac_matches = []
+            for mac in macs:
+                norm = mac_lookup_store.normalize_mac(mac)
+                if norm and norm in mac_index:
+                    mac_matches.append(mac_index[norm])
+            mapped_ips_str = " | ".join(
+                r["ip_address"] for r in mac_matches if r.get("ip_address")
+            )
+            display["mapped_ips"] = mapped_ips_str
+
+            # Ordered, deduplicated IP list (mapped first, then VMware)
+            seen: set = set()
+            display_ips: list = []
+            for ip in (mapped_ips_str.split(" | ") if mapped_ips_str else []):
+                ip = ip.strip()
+                if ip and ip.lower() not in seen:
+                    display_ips.append({"ip": ip, "src": "mac"})
+                    seen.add(ip.lower())
+            for ip in display["ip_addresses"].split(" | "):
+                ip = ip.strip()
+                if ip and ip != "Not Available" and ip.lower() not in seen:
+                    display_ips.append({"ip": ip, "src": "vmware"})
+                    seen.add(ip.lower())
+            display["display_ips"] = display_ips
+
+            # Asset status check
+            asset_status_label = (
+                _check_asset_ips(mapped_ips_str, display["ip_addresses"], asset_ip_map)
+                if asset_configured else "—"
+            )
+            if asset_status_label == "Both":
+                asset_status = "both"
+            elif asset_status_label == "Asset Inventory":
+                asset_status = "asset_inv"
+            elif asset_status_label == "Ext. Asset Inventory":
+                asset_status = "ext_asset_inv"
+            else:
+                asset_status = "not_found"
+
+            # Find the best matching full asset record
+            matched_record: dict = {}
+            if asset_configured:
+                for entry in display_ips:
+                    rec = full_records.get(entry["ip"].lower(), {})
+                    if rec:
+                        matched_record = rec
+                        break
+
+            display["asset_status"] = asset_status
+            display["asset_record"] = matched_record
+
+            stats[asset_status] += 1
+
+            # Editable overlay
             key = f"{source_host}|||{vm_name}".lower()
             edit = edits.get(key, {})
 
             display["edit"] = {
                 "asset_name": edit.get("asset_name") or display.get("name", ""),
                 "hostname":   edit.get("hostname")   or (display.get("hostname") if display.get("hostname") != "Not Available" else ""),
-                "ip_address": edit.get("ip_address") or (
-                    display.get("ip_addresses", "").split(" | ")[0]
-                    if display.get("ip_addresses") and display.get("ip_addresses") != "Not Available" else ""
-                ),
+                "ip_address": edit.get("ip_address") or (display_ips[0]["ip"] if display_ips else ""),
                 "os_type":    edit.get("os_type")    or (display.get("os_type") if display.get("os_type") != "Not Available" else ""),
                 "os_version": edit.get("os_version") or (display.get("os_version") if display.get("os_version") != "Not Available" else ""),
                 "updated_at": edit.get("updated_at", ""),
                 "has_override": bool(edit),
             }
+            # Edit allowed only when the asset is NOT found in any upstream list
+            # (or when the Asset API is not configured at all)
+            display["can_edit"] = (not asset_configured) or (asset_status == "not_found")
             vms.append(display)
 
         return render_template(
             "asset_editor.html",
             vms=vms,
             total=len(vms),
+            stats=stats,
+            asset_configured=asset_configured,
             edited_count=sum(1 for v in vms if v["edit"]["has_override"]),
+            editable_count=sum(1 for v in vms if v["can_edit"]),
         )
 
     @app.route("/asset-editor/save", methods=["POST"])
