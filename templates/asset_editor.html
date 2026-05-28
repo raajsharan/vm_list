@@ -67,6 +67,27 @@
     </div>
   </div>
 
+  <!-- ── Bulk-action form for adding selected rows to Ext. Asset Inventory ── -->
+  {% if asset_configured %}
+  <form method="POST" action="{{ url_for('asset_editor_add_to_ext') }}" id="aeAddForm">
+
+    <div class="sel-bar" id="aeSelBar" hidden>
+      <div class="sel-bar-left">
+        <span class="sel-bar-count" id="aeSelCount">0 selected</span>
+        <button type="button" class="btn btn--ghost btn--xs" id="aeSelAll">Select All Eligible</button>
+        <button type="button" class="btn btn--ghost btn--xs" id="aeSelNone">Clear</button>
+      </div>
+      <div class="sel-bar-right">
+        <span style="font-size:.72rem;color:var(--text-muted);font-family:var(--mono)">
+          Push edited values to Ext. Asset Inventory
+        </span>
+        <button type="submit" class="btn btn--primary btn--sm">
+          + Add Selected (<span id="aeSelCountBtn">0</span>)
+        </button>
+      </div>
+    </div>
+  {% endif %}
+
   <!-- ── Table ── -->
   {% if vms %}
   <div class="card" style="overflow:hidden;padding:0;margin-top:.75rem">
@@ -74,6 +95,9 @@
       <table class="vm-table" id="aeTable">
         <thead>
           <tr>
+            {% if asset_configured %}
+            <th style="width:36px;padding-left:1rem"></th>
+            {% endif %}
             <th>VM Name</th>
             <th>IP Addresses</th>
             <th>Hostname</th>
@@ -91,11 +115,35 @@
         <tbody>
           {% for vm in vms %}
           {% set rec = vm.asset_record %}
+          {% set effective_ip = vm.edit.ip_address if (vm.edit.has_override and vm.edit.ip_address)
+                                 else (vm.display_ips[0].ip if vm.display_ips else '') %}
+          {% set effective_host = vm.edit.hostname if (vm.edit.has_override and vm.edit.hostname)
+                                   else (vm.hostname if vm.hostname and vm.hostname != 'Not Available' else '') %}
+          {% set first_mac = vm.mac_addresses.split(' | ')[0] if vm.mac_addresses and vm.mac_addresses != 'Not Available' else '' %}
           <tr class="ae-row"
               data-status="{{ vm.asset_status }}"
               data-edited="{{ '1' if vm.edit.has_override else '0' }}"
               data-can-edit="{{ '1' if vm.can_edit else '0' }}"
+              data-has-ip="{{ '1' if effective_ip else '0' }}"
               data-search="{{ [vm.name, vm.hostname, vm.ip_addresses, vm.mapped_ips, vm.os_type, vm.get('source_host',''), rec.get('hostname',''), rec.get('ip_address','')]|join(' ')|lower }}">
+
+            {% if asset_configured %}
+            <td style="padding-left:1rem;padding-right:.5rem">
+              {% if vm.can_edit and effective_ip %}
+              <label class="hc-select-wrap" title="Select to add to Ext. Asset Inventory using edited values">
+                <input type="checkbox" name="selected_vms"
+                       class="ae-cb"
+                       value="{{ effective_ip }}|||{{ effective_host }}|||{{ vm.edit.asset_name or vm.name }}|||{{ first_mac }}|||{{ vm.get('source_host','') }}">
+                <span class="hc-checkmark"></span>
+              </label>
+              {% elif not vm.can_edit %}
+              <span class="ad-no-cb" title="Already in inventory">✓</span>
+              {% else %}
+              <span class="ad-no-cb" title="No IP available — edit row to add one" style="opacity:.4">·</span>
+              {% endif %}
+            </td>
+            {% endif %}
+
 
             <td>
               <span class="vm-name">{{ vm.edit.asset_name or vm.name }}</span>
@@ -237,6 +285,10 @@
   </div>
   {% endif %}
 
+  {% if asset_configured %}
+  </form>
+  {% endif %}
+
 </div>
 
 <!-- ── Edit modal ── -->
@@ -260,6 +312,10 @@
         <div class="ae-field">
           <label for="aeFieldIpAddress">IP Address</label>
           <input type="text" name="ip_address" id="aeFieldIpAddress" autocomplete="off" placeholder="e.g. 10.0.0.5">
+          <div class="ae-ip-check" id="aeIpCheck" hidden>
+            <span class="ae-ip-check-dot" id="aeIpCheckDot"></span>
+            <span class="ae-ip-check-text" id="aeIpCheckText"></span>
+          </div>
         </div>
 
         <div class="ae-field">
@@ -306,6 +362,27 @@
   color: var(--green) !important;
   font-weight: 500;
 }
+.ae-ip-check {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  margin-top: .35rem;
+  font-size: .72rem;
+  font-family: var(--mono);
+}
+.ae-ip-check-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex: 0 0 auto;
+}
+.ae-ip-check--found    .ae-ip-check-dot { background: var(--green); }
+.ae-ip-check--missing  .ae-ip-check-dot { background: var(--accent); }
+.ae-ip-check--checking .ae-ip-check-dot { background: var(--text-muted); animation: aePulse 1s infinite; }
+.ae-ip-check--found    .ae-ip-check-text { color: var(--green); }
+.ae-ip-check--missing  .ae-ip-check-text { color: var(--accent); }
+.ae-ip-check--checking .ae-ip-check-text { color: var(--text-muted); font-style: italic; }
+@keyframes aePulse { 0%,100% { opacity:1 } 50% { opacity:.35 } }
 .ae-locked {
   font-size: .9rem;
   color: var(--text-muted);
@@ -518,6 +595,112 @@
       }
     });
   }
+
+  // ── Live IP verification in modal ─────────────────────────
+  var ipCheck     = document.getElementById('aeIpCheck');
+  var ipCheckDot  = document.getElementById('aeIpCheckDot');
+  var ipCheckText = document.getElementById('aeIpCheckText');
+  var ipDebounce  = null;
+  var lastChecked = '';
+
+  function setCheckState(state, text) {
+    if (!ipCheck) return;
+    ipCheck.hidden = !text;
+    ipCheck.classList.remove('ae-ip-check--found', 'ae-ip-check--missing', 'ae-ip-check--checking');
+    if (state) ipCheck.classList.add('ae-ip-check--' + state);
+    if (ipCheckText) ipCheckText.textContent = text || '';
+  }
+
+  function verifyIp(ip) {
+    if (!ip) { setCheckState(null, ''); return; }
+    if (ip === lastChecked) return;
+    lastChecked = ip;
+    setCheckState('checking', 'Checking ' + ip + '…');
+    fetch('{{ url_for("asset_editor_verify_ip") }}?ip=' + encodeURIComponent(ip), {
+      headers: { 'Accept': 'application/json' },
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.configured === false) {
+          setCheckState(null, '');
+          return;
+        }
+        if (data.found) {
+          setCheckState('found', '✓ Already in ' + data.source);
+        } else {
+          setCheckState('missing', '○ Not in any inventory — eligible to add');
+        }
+      })
+      .catch(function () {
+        setCheckState(null, '');
+      });
+  }
+
+  if (fIp) {
+    fIp.addEventListener('input', function () {
+      var val = fIp.value.trim();
+      if (ipDebounce) clearTimeout(ipDebounce);
+      if (!val) { setCheckState(null, ''); lastChecked = ''; return; }
+      ipDebounce = setTimeout(function () { verifyIp(val); }, 400);
+    });
+  }
+
+  // Reset the check line every time the modal reopens
+  var origOpenModal = openModal;
+  // (openModal is defined above in this IIFE — patch it via wrapper)
+  // No-op here since openModal is already in scope; the input listener handles
+  // subsequent typing, and we explicitly reset on open below.
+
+  // ── Bulk selection: Add to Ext. Asset Inventory ───────────
+  var selBar      = document.getElementById('aeSelBar');
+  var selCount    = document.getElementById('aeSelCount');
+  var selCountBtn = document.getElementById('aeSelCountBtn');
+  var selAllBtn   = document.getElementById('aeSelAll');
+  var selNoneBtn  = document.getElementById('aeSelNone');
+
+  function updateSelBar() {
+    var checked = document.querySelectorAll('.ae-cb:checked').length;
+    if (selBar)      selBar.hidden          = checked === 0;
+    if (selCount)    selCount.textContent   = checked + ' selected';
+    if (selCountBtn) selCountBtn.textContent = checked;
+    document.querySelectorAll('.ae-cb').forEach(function (cb) {
+      var row = cb.closest('.ae-row');
+      if (row) row.classList.toggle('host-card--selected', cb.checked);
+    });
+  }
+
+  document.addEventListener('change', function (e) {
+    if (e.target.classList && e.target.classList.contains('ae-cb')) updateSelBar();
+  });
+
+  if (selAllBtn) {
+    selAllBtn.addEventListener('click', function () {
+      rows.forEach(function (row) {
+        if (row.style.display === 'none') return;
+        var cb = row.querySelector('.ae-cb');
+        if (cb && !cb.disabled) cb.checked = true;
+      });
+      updateSelBar();
+    });
+  }
+  if (selNoneBtn) {
+    selNoneBtn.addEventListener('click', function () {
+      document.querySelectorAll('.ae-cb').forEach(function (cb) { cb.checked = false; });
+      updateSelBar();
+    });
+  }
+
+  // Clear the IP check on modal open by hooking the existing edit buttons
+  document.querySelectorAll('.ae-edit-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      lastChecked = '';
+      setCheckState(null, '');
+      // Trigger an initial check on the pre-filled IP, if any
+      setTimeout(function () {
+        if (fIp && fIp.value.trim()) verifyIp(fIp.value.trim());
+      }, 100);
+    });
+  });
 
 })();
 </script>

@@ -812,6 +812,84 @@ def create_app() -> Flask:
             flash(f"Failed to save edits for {vm_name}: {err}", "error")
         return redirect(url_for("asset_editor"))
 
+    @app.route("/asset-editor/verify-ip", methods=["GET"])
+    def asset_editor_verify_ip():
+        """Live IP lookup for the modal: tells the UI whether the typed IP
+        already exists in Asset Inventory / Ext. Asset Inventory / both."""
+        from flask import jsonify
+        ip = (request.args.get("ip", "") or "").strip().lower()
+        if not ip:
+            return jsonify({"ip": "", "found": False, "source": ""})
+        if not asset_api.is_configured():
+            return jsonify({"ip": ip, "found": False, "source": "", "configured": False})
+        label = asset_api.fetch_all_asset_ips().get(ip)
+        return jsonify({
+            "ip":         ip,
+            "found":      bool(label),
+            "source":     label or "",
+            "configured": True,
+        })
+
+    @app.route("/asset-editor/add-to-ext", methods=["POST"])
+    def asset_editor_add_to_ext():
+        """Push the EDITED values of selected VMs to Ext. Asset Inventory.
+        Skips rows whose IP is already in an inventory to avoid duplicates."""
+        selected = request.form.getlist("selected_vms")
+        if not selected:
+            flash("No VMs selected.", "warning")
+            return redirect(url_for("asset_editor"))
+
+        if not asset_api.is_configured():
+            flash("Asset Inventory API is not configured. Configure it in Settings first.", "error")
+            return redirect(url_for("asset_editor"))
+
+        existing_ips = asset_api.fetch_all_asset_ips()
+
+        entries: list[dict] = []
+        skipped_existing: list[str] = []
+        skipped_no_ip: list[str] = []
+        for item in selected:
+            parts = item.split("|||")
+            ip   = parts[0].strip() if len(parts) > 0 else ""
+            host = parts[1].strip() if len(parts) > 1 else ""
+            name = parts[2].strip() if len(parts) > 2 else ""
+            mac  = parts[3].strip() if len(parts) > 3 else ""
+            esxi = parts[4].strip() if len(parts) > 4 else ""
+            if not ip or ip.lower() == "not available":
+                skipped_no_ip.append(name or host or "(unnamed)")
+                continue
+            if existing_ips.get(ip.lower()):
+                skipped_existing.append(f"{name or host} ({ip})")
+                continue
+            entries.append({
+                "ip_address":  ip,
+                "asset_name":  name,
+                "vm_name":     name,
+                "os_hostname": host,
+                "mac_address": mac,
+                "hosted_ip":   esxi,
+            })
+
+        if not entries:
+            msgs = []
+            if skipped_no_ip:
+                msgs.append(f"{len(skipped_no_ip)} skipped: no IP set ({', '.join(skipped_no_ip[:3])})")
+            if skipped_existing:
+                msgs.append(f"{len(skipped_existing)} skipped: already in inventory ({', '.join(skipped_existing[:3])})")
+            flash("Nothing to add. " + " · ".join(msgs) if msgs else "No valid entries.", "warning")
+            return redirect(url_for("asset_editor"))
+
+        success, fail, errors = asset_api.add_to_ext_inventory(entries)
+        if success:
+            flash(f"Added {success} VM(s) to Ext. Asset Inventory.", "success")
+        if fail:
+            flash(f"Failed to add {fail} VM(s): {'; '.join(errors[:3])}", "error")
+        if skipped_existing:
+            flash(f"Skipped {len(skipped_existing)} already in inventory: {', '.join(skipped_existing[:3])}", "info")
+        if skipped_no_ip:
+            flash(f"Skipped {len(skipped_no_ip)} with no IP set — edit them first to add an IP.", "info")
+        return redirect(url_for("asset_editor"))
+
     @app.route("/asset-editor/reset", methods=["POST"])
     def asset_editor_reset():
         source_host = request.form.get("source_host", "").strip()
