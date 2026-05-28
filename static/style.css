@@ -1463,13 +1463,18 @@ code { font-family: var(--mono); font-size: 0.78rem; color: var(--accent); }
 }
 
 .setting-input {
-  width: 120px;
   font-family: var(--mono);
+  font-size: 0.88rem;
+  padding: 0.5rem 0.7rem;
+  width: 100%;
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+}
+/* Narrow centered style only for the numeric Port input */
+.setting-input[type="number"] {
+  width: 120px;
   font-size: 1rem;
   font-weight: 600;
   text-align: center;
-  padding: 0.5rem 0.65rem;
-  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
 }
 
 .setting-input.input--changed {

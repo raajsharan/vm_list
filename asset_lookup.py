@@ -30,6 +30,7 @@ _token_state: dict = {}  # {token, expires_at}
 _ip_state:    dict = {}  # {data, expires_at, main_count, ext_count, fetched_at, error}
 _full_state:  dict = {}  # {data, expires_at}   data = {ip: full_record_dict}
 _status_state: dict = {}  # {data, expires_at}   data = {lowercased_name: id}
+_refresh_lock = threading.Lock()  # serializes background refresh attempts
 
 
 # ── Encryption (reuses same ENCRYPTION_KEY as credential_store) ─────────────
@@ -213,11 +214,20 @@ def fetch_all_asset_ips() -> dict:
     Returns {ip_lowercase: label} where label is one of:
       "Asset Inventory", "Ext. Asset Inventory", "Both"
     Returns {} if not configured or API is unreachable.
-    Caches for 10 min on success, 1 min on empty/error (so it retries sooner).
+    Stale-while-revalidate: when cache is stale but present, returns the
+    stale data immediately and triggers a background refresh — page renders
+    stay fast even as the cache expires.
     """
+    now = time.time()
     with _lock:
-        if _ip_state.get("data") is not None and time.time() < _ip_state.get("expires_at", 0):
-            return _ip_state["data"]
+        data = _ip_state.get("data")
+        exp  = _ip_state.get("expires_at", 0)
+        if data is not None:
+            if now < exp:
+                return data
+            # stale but present — serve immediately, refresh in background
+            threading.Thread(target=_refresh_ip_cache, daemon=True).start()
+            return data
 
     cfg = load_config()
     if not cfg.get("base_url") or not cfg.get("username"):
@@ -295,6 +305,56 @@ def fetch_all_asset_ips() -> dict:
     return result
 
 
+def _refresh_ip_cache() -> None:
+    """Background refresh: forces a fresh fetch_all_asset_ips() call.
+    Held by _refresh_lock to avoid stampedes if several requests are stale
+    at the same time."""
+    if not _refresh_lock.acquire(blocking=False):
+        return
+    try:
+        with _lock:
+            # Force the synchronous fetch path by expiring the cache locally
+            _ip_state["expires_at"] = 0
+        fetch_all_asset_ips()
+    except Exception as exc:
+        logger.warning("Background asset-IP cache refresh failed: %s", exc)
+    finally:
+        _refresh_lock.release()
+
+
+def _refresh_full_cache() -> None:
+    if not _refresh_lock.acquire(blocking=False):
+        return
+    try:
+        with _lock:
+            _full_state["expires_at"] = 0
+        fetch_assets_full()
+    except Exception as exc:
+        logger.warning("Background full-asset cache refresh failed: %s", exc)
+    finally:
+        _refresh_lock.release()
+
+
+def warm_caches_async() -> None:
+    """Kick off a background fetch on app startup so the first user request
+    doesn't pay the cold-cache cost. Safe to call when the API is not yet
+    configured — it will just return without doing work."""
+    if not is_configured():
+        logger.info("Asset API not configured — skipping cache warmup")
+        return
+
+    def _warm():
+        try:
+            logger.info("Warming asset IP/full caches in background…")
+            fetch_all_asset_ips()
+            fetch_assets_full()
+            logger.info("Asset cache warmup complete.")
+        except Exception as exc:
+            logger.warning("Asset cache warmup failed: %s", exc)
+
+    threading.Thread(target=_warm, daemon=True).start()
+
+
 # ── Test connection ───────────────────────────────────────────────────────────
 
 def test_connection() -> tuple[bool, str]:
@@ -343,11 +403,18 @@ def fetch_assets_full() -> dict:
     """
     Returns {ip_lowercase: record_dict} for every known asset.
     Each record_dict has a 'source' key: "Asset Inventory", "Ext. Asset Inventory", or "Both".
-    Cached for 10 min. Warms the IP-only cache as a side-effect when it is stale.
+    Stale-while-revalidate: returns stale data immediately and refreshes in
+    the background. Warms the IP-only cache as a side-effect.
     """
+    now = time.time()
     with _lock:
-        if _full_state.get("data") is not None and time.time() < _full_state.get("expires_at", 0):
-            return _full_state["data"]
+        data = _full_state.get("data")
+        exp  = _full_state.get("expires_at", 0)
+        if data is not None:
+            if now < exp:
+                return data
+            threading.Thread(target=_refresh_full_cache, daemon=True).start()
+            return data
 
     cfg = load_config()
     if not cfg.get("base_url") or not cfg.get("username"):

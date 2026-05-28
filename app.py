@@ -85,6 +85,9 @@ def create_app() -> Flask:
 
     database.init_app(os.environ.get("DATABASE_URL"))
     scheduler.init()
+    # Kick off a background fetch so the first user request doesn't pay the
+    # cold-cache cost. Safe no-op if the API isn't configured yet.
+    asset_api.warm_caches_async()
 
     # -----------------------------------------------------------------------
     # Routes

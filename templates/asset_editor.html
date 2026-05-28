@@ -537,32 +537,44 @@
   var metaTime   = document.getElementById('aeMetaTime');
 
   function openModal(btn) {
-    var sourceHost = btn.dataset.sourceHost || '';
-    var vmName     = btn.dataset.vmName     || '';
-    if (!vmName) {
-      alert('Cannot open editor: this row has no VM name.');
-      return;
-    }
-    fSource.value    = sourceHost;
-    fVmName.value    = vmName;
-    fAsset.value     = btn.dataset.assetName || '';
-    fIp.value        = btn.dataset.ipAddress || '';
-    fHost.value      = btn.dataset.hostname  || '';
-    fOsType.value    = btn.dataset.osType    || '';
-    fOsVersion.value = btn.dataset.osVersion || '';
-    titleEl.textContent = 'Edit Asset: ' + vmName;
+    try {
+      var sourceHost = btn.dataset.sourceHost || '';
+      var vmName     = btn.dataset.vmName     || '';
+      if (!vmName) {
+        alert('Cannot open editor: this row has no VM name.');
+        return;
+      }
+      fSource.value    = sourceHost;
+      fVmName.value    = vmName;
+      fAsset.value     = btn.dataset.assetName || '';
+      fIp.value        = btn.dataset.ipAddress || '';
+      fHost.value      = btn.dataset.hostname  || '';
+      fOsType.value    = btn.dataset.osType    || '';
+      fOsVersion.value = btn.dataset.osVersion || '';
+      titleEl.textContent = 'Edit Asset: ' + vmName;
 
-    var updated = btn.dataset.updatedAt || '';
-    if (btn.dataset.hasOverride === '1' && updated) {
-      metaEl.hidden = false;
-      metaTime.textContent = updated;
-    } else {
-      metaEl.hidden = true;
-    }
+      var updated = btn.dataset.updatedAt || '';
+      if (btn.dataset.hasOverride === '1' && updated) {
+        metaEl.hidden = false;
+        metaTime.textContent = updated;
+      } else {
+        metaEl.hidden = true;
+      }
 
-    backdrop.classList.add('open');
-    backdrop.setAttribute('aria-hidden', 'false');
-    setTimeout(function () { fAsset.focus(); fAsset.select(); }, 30);
+      // Reset and re-trigger IP check for the pre-filled value
+      lastChecked = '';
+      setCheckState(null, '');
+      if (fIp.value.trim()) {
+        setTimeout(function () { verifyIp(fIp.value.trim()); }, 50);
+      }
+
+      backdrop.classList.add('open');
+      backdrop.setAttribute('aria-hidden', 'false');
+      setTimeout(function () { fAsset.focus(); fAsset.select(); }, 30);
+    } catch (err) {
+      console.error('Asset Editor: openModal failed', err);
+      alert('Could not open editor: ' + (err && err.message ? err.message : err));
+    }
   }
 
   function closeModal() {
@@ -645,12 +657,6 @@
     });
   }
 
-  // Reset the check line every time the modal reopens
-  var origOpenModal = openModal;
-  // (openModal is defined above in this IIFE — patch it via wrapper)
-  // No-op here since openModal is already in scope; the input listener handles
-  // subsequent typing, and we explicitly reset on open below.
-
   // ── Bulk selection: Add to Ext. Asset Inventory ───────────
   var selBar      = document.getElementById('aeSelBar');
   var selCount    = document.getElementById('aeSelCount');
@@ -689,18 +695,6 @@
       updateSelBar();
     });
   }
-
-  // Clear the IP check on modal open by hooking the existing edit buttons
-  document.querySelectorAll('.ae-edit-btn').forEach(function (btn) {
-    btn.addEventListener('click', function () {
-      lastChecked = '';
-      setCheckState(null, '');
-      // Trigger an initial check on the pre-filled IP, if any
-      setTimeout(function () {
-        if (fIp && fIp.value.trim()) verifyIp(fIp.value.trim());
-      }, 100);
-    });
-  });
 
 })();
 </script>
