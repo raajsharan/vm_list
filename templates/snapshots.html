@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}Snapshots — VMware Inventory{% endblock %}
+
+{% block content %}
+<div class="page-asset-dash">
+  <div class="inventory-header">
+    <div>
+      <div class="page-label">STORAGE HYGIENE</div>
+      <h1 class="page-title">VM <span class="accent">Snapshots</span></h1>
+      <p class="hero-sub" style="margin-top:.4rem">
+        {{ total }} VM{{ 's' if total != 1 else '' }} with snapshots ·
+        flagged when older than <strong>{{ stale_threshold }}</strong> days
+      </p>
+    </div>
+  </div>
+
+  {% if rows %}
+  <div class="card" style="padding:0;overflow:hidden">
+    <div class="vm-scroll-wrap">
+      <table class="vm-table" id="snapTable">
+        <thead>
+          <tr>
+            <th class="sortable" data-col="0">VM Name <span class="sort-icon">⇅</span></th>
+            <th class="sortable" data-col="1">Source <span class="sort-icon">⇅</span></th>
+            <th class="sortable" data-col="2">ESXi Host <span class="sort-icon">⇅</span></th>
+            <th>Power</th>
+            <th class="sortable" data-col="4">Snapshots <span class="sort-icon">⇅</span></th>
+            <th class="sortable" data-col="5">Oldest <span class="sort-icon">⇅</span></th>
+            <th class="sortable" data-col="6">Age (days) <span class="sort-icon">⇅</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in rows %}
+          <tr {% if r.age_days is not none and r.age_days >= stale_threshold %}class="snap-stale"{% endif %}>
+            <td><span class="vm-name">{{ r.name }}</span></td>
+            <td style="font-family:var(--mono);font-size:.72rem;color:var(--text-muted)">{{ r.source_host or '—' }}</td>
+            <td style="font-family:var(--mono);font-size:.74rem;color:var(--text-muted)">{{ r.esxi_host if r.esxi_host != 'Not Available' else '—' }}</td>
+            <td>
+              {% set pw = r.power_state %}
+              <span class="power-badge power-badge--{{ pw }}">{{ 'ON' if pw=='poweredOn' else ('OFF' if pw=='poweredOff' else pw|upper) }}</span>
+            </td>
+            <td style="font-family:var(--mono)">{{ r.count }}</td>
+            <td style="font-family:var(--mono);font-size:.73rem">{{ r.oldest }}</td>
+            <td>
+              {% if r.age_days is not none %}
+                <span class="{{ 'snap-age-bad' if r.age_days >= stale_threshold else 'snap-age-ok' }}">{{ r.age_days }}</span>
+              {% else %}<span style="color:var(--text-dim)">—</span>{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <div class="empty-icon">⌖</div>
+    <p>No VM snapshots found in the latest inventory. Re-run discovery to refresh snapshot data.</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const table = document.getElementById('snapTable');
+  if (!table) return;
+  let sortCol = -1, sortAsc = true;
+  document.querySelectorAll('#snapTable th.sortable').forEach(function (th) {
+    th.style.cursor = 'pointer';
+    th.addEventListener('click', function () {
+      const col = parseInt(this.dataset.col, 10);
+      if (sortCol === col) sortAsc = !sortAsc; else { sortCol = col; sortAsc = true; }
+      document.querySelectorAll('#snapTable th.sortable .sort-icon').forEach(s => s.textContent = '⇅');
+      th.querySelector('.sort-icon').textContent = sortAsc ? '↑' : '↓';
+      const tbody = table.querySelector('tbody');
+      Array.from(tbody.querySelectorAll('tr')).sort(function (a, b) {
+        const at = (a.cells[col]?.textContent || '').trim().toLowerCase();
+        const bt = (b.cells[col]?.textContent || '').trim().toLowerCase();
+        const n = parseFloat(at) - parseFloat(bt);
+        if (!isNaN(n)) return sortAsc ? n : -n;
+        return sortAsc ? at.localeCompare(bt) : bt.localeCompare(at);
+      }).forEach(r => tbody.appendChild(r));
+    });
+  });
+})();
+</script>
+{% endblock %}

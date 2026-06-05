@@ -53,6 +53,16 @@ def normalise_for_display(records: list[dict]) -> list[dict]:
             "created_date":    rec.get("created_date", _UNKNOWN),
             "power_state":     rec.get("power_state", _UNKNOWN),
             "tools_status":    rec.get("tools_status", _UNKNOWN),
+            # Capacity / snapshot fields (empty/None when not collected yet)
+            "num_cpu":         rec.get("num_cpu"),
+            "memory_mb":       rec.get("memory_mb"),
+            "memory_gb":       (round(rec["memory_mb"] / 1024, 1)
+                                if isinstance(rec.get("memory_mb"), int) else None),
+            "storage_committed_gb":   rec.get("storage_committed_gb") or "",
+            "storage_uncommitted_gb": rec.get("storage_uncommitted_gb") or "",
+            "datastores":      _join(rec.get("datastores", [])) if rec.get("datastores") else "",
+            "snapshot_count":  rec.get("snapshot_count") or 0,
+            "snapshot_oldest": rec.get("snapshot_oldest") or "",
         })
     return display
 
@@ -75,6 +85,13 @@ def to_csv_rows_consolidated(records: list[dict]) -> list[dict]:
             "Created Date":     rec.get("created_date", _UNKNOWN),
             "Power State":      rec.get("power_state", _UNKNOWN),
             "VMware Tools":     rec.get("tools_status", _UNKNOWN),
+            "vCPU":             rec.get("num_cpu") if rec.get("num_cpu") is not None else "",
+            "Memory (MB)":      rec.get("memory_mb") if rec.get("memory_mb") is not None else "",
+            "Storage Used (GB)":   rec.get("storage_committed_gb") or "",
+            "Storage Prov. (GB)":  rec.get("storage_uncommitted_gb") or "",
+            "Datastores":       _join(rec.get("datastores", []), "; ") if rec.get("datastores") else "",
+            "Snapshots":        rec.get("snapshot_count") or 0,
+            "Oldest Snapshot":  rec.get("snapshot_oldest") or "",
         })
     return rows
 

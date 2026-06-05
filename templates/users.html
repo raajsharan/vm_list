@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}Users — VMware Inventory{% endblock %}
+
+{% block content %}
+<div class="page-asset-dash">
+  <div class="inventory-header">
+    <div>
+      <div class="page-label">ADMINISTRATION</div>
+      <h1 class="page-title">User <span class="accent">Management</span></h1>
+      <p class="hero-sub" style="margin-top:.4rem">
+        {{ users|length }} account{{ 's' if users|length != 1 else '' }} ·
+        roles: <strong>admin</strong> (full access) / <strong>viewer</strong> (read-only)
+      </p>
+    </div>
+  </div>
+
+  <!-- Add user -->
+  <div class="card" style="margin-bottom:1.2rem">
+    <div class="card-header"><h2 class="card-title">Add user</h2></div>
+    <form method="POST" action="{{ url_for('users_add') }}" autocomplete="off"
+          style="display:flex;gap:.75rem;flex-wrap:wrap;align-items:flex-end">
+      <div class="form-group" style="margin:0;flex:1;min-width:160px">
+        <label class="form-label">Username</label>
+        <input class="form-input" name="username" type="text" required>
+      </div>
+      <div class="form-group" style="margin:0;flex:1;min-width:160px">
+        <label class="form-label">Password (min 8)</label>
+        <input class="form-input" name="password" type="password" required>
+      </div>
+      <div class="form-group" style="margin:0;min-width:130px">
+        <label class="form-label">Role</label>
+        <select class="form-input" name="role">
+          <option value="viewer">viewer</option>
+          <option value="admin">admin</option>
+        </select>
+      </div>
+      <button type="submit" class="btn btn--primary">Add user</button>
+    </form>
+  </div>
+
+  <!-- User list -->
+  <div class="card" style="overflow:hidden;padding:0">
+    <div class="vm-scroll-wrap">
+      <table class="vm-table">
+        <thead>
+          <tr><th>Username</th><th>Role</th><th>Status</th><th>Created</th><th>Last login</th><th>Actions</th></tr>
+        </thead>
+        <tbody>
+          {% for u in users %}
+          <tr>
+            <td><span class="vm-name">{{ u.username }}</span>
+              {% if u.id == current_user.id %}<span style="color:var(--text-dim);font-size:.7rem"> (you)</span>{% endif %}
+            </td>
+            <td>
+              <form method="POST" action="{{ url_for('users_set_role', user_id=u.id) }}" style="display:inline-flex;gap:.4rem;align-items:center">
+                <select name="role" class="form-input" style="padding:.2rem .4rem;font-size:.75rem;width:auto">
+                  <option value="viewer" {{ 'selected' if u.role=='viewer' }}>viewer</option>
+                  <option value="admin"  {{ 'selected' if u.role=='admin' }}>admin</option>
+                </select>
+                <button type="submit" class="btn-small">Set</button>
+              </form>
+            </td>
+            <td>
+              {% if u.active %}<span class="power-badge power-badge--poweredOn">ACTIVE</span>
+              {% else %}<span class="power-badge power-badge--poweredOff">DISABLED</span>{% endif %}
+            </td>
+            <td style="font-size:.72rem;color:var(--text-muted)">{{ u.created_at }}</td>
+            <td style="font-size:.72rem;color:var(--text-muted)">{{ u.last_login }}</td>
+            <td>
+              <div style="display:flex;gap:.4rem;flex-wrap:wrap;align-items:center">
+                <form method="POST" action="{{ url_for('users_toggle', user_id=u.id) }}" style="display:inline">
+                  <button type="submit" class="btn-small">{{ 'Disable' if u.active else 'Enable' }}</button>
+                </form>
+                <details style="display:inline-block">
+                  <summary class="btn-small" style="cursor:pointer;list-style:none">Reset pw</summary>
+                  <form method="POST" action="{{ url_for('users_reset_password', user_id=u.id) }}"
+                        style="display:flex;gap:.3rem;margin-top:.3rem">
+                    <input class="form-input" name="password" type="password" placeholder="new password" required
+                           style="padding:.2rem .4rem;font-size:.75rem">
+                    <button type="submit" class="btn-small btn-primary">Save</button>
+                  </form>
+                </details>
+                {% if u.id != current_user.id %}
+                <form method="POST" action="{{ url_for('users_delete', user_id=u.id) }}" style="display:inline"
+                      onsubmit="return confirm('Delete user {{ u.username }}?')">
+                  <button type="submit" class="btn-small btn-danger">Delete</button>
+                </form>
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

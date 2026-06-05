@@ -144,6 +144,82 @@ def _get_macs_and_ips(vm) -> tuple[list[str], list[str]]:
     return macs or ["Not Available"], ips or ["Not Available"]
 
 
+def _get_capacity(vm) -> dict:
+    """Best-effort CPU / memory / storage capacity for a VM."""
+    out = {
+        "num_cpu":   None,
+        "memory_mb": None,
+        "storage_committed_gb":   "",
+        "storage_uncommitted_gb": "",
+        "datastores": [],
+    }
+    try:
+        num_cpu = _safe(vm, "config", "hardware", "numCPU")
+        if isinstance(num_cpu, int):
+            out["num_cpu"] = num_cpu
+        mem = _safe(vm, "config", "hardware", "memoryMB")
+        if isinstance(mem, int):
+            out["memory_mb"] = mem
+    except Exception:
+        pass
+
+    # Storage from summary (bytes → GB string, 2 dp)
+    try:
+        storage = _safe(vm, "summary", "storage")
+        if storage is not None and storage != "Not Available":
+            committed   = getattr(storage, "committed", None)
+            uncommitted = getattr(storage, "uncommitted", None)
+            if isinstance(committed, (int, float)):
+                out["storage_committed_gb"] = f"{committed / (1024**3):.2f}"
+            if isinstance(uncommitted, (int, float)):
+                out["storage_uncommitted_gb"] = f"{uncommitted / (1024**3):.2f}"
+    except Exception:
+        pass
+
+    # Datastore names
+    try:
+        dstores = _safe(vm, "datastore") or []
+        names = []
+        for ds in dstores:
+            name = getattr(ds, "name", None)
+            if name:
+                names.append(name)
+        out["datastores"] = names
+    except Exception:
+        pass
+
+    return out
+
+
+def _get_snapshots(vm) -> tuple[int, str]:
+    """Return (snapshot_count, oldest_create_date_str) for a VM."""
+    try:
+        snap = _safe(vm, "snapshot")
+        if not snap or snap == "Not Available":
+            return 0, ""
+        roots = getattr(snap, "rootSnapshotList", None) or []
+        count = 0
+        oldest: Optional[datetime] = None
+
+        def _walk(nodes):
+            nonlocal count, oldest
+            for node in nodes:
+                count += 1
+                ct = getattr(node, "createTime", None)
+                if isinstance(ct, datetime):
+                    if oldest is None or ct < oldest:
+                        oldest = ct
+                children = getattr(node, "childSnapshotList", None) or []
+                if children:
+                    _walk(children)
+
+        _walk(roots)
+        oldest_str = oldest.strftime("%Y-%m-%d %H:%M:%S UTC") if oldest else ""
+        return count, oldest_str
+    except Exception:
+        return 0, ""
+
+
 def _get_esxi_host_name(vm) -> str:
     """Return the ESXi host name for this VM."""
     try:
@@ -196,6 +272,8 @@ def get_vm_inventory(si) -> list[dict]:
                 continue
 
             macs, ips = _get_macs_and_ips(vm)
+            capacity = _get_capacity(vm)
+            snap_count, snap_oldest = _get_snapshots(vm)
 
             record = {
                 "name":            _safe(vm, "name"),
@@ -209,6 +287,13 @@ def get_vm_inventory(si) -> list[dict]:
                 "created_date":    _get_created_date(vm),
                 "power_state":     _safe(vm, "runtime", "powerState", default="unknown"),
                 "tools_status":    _safe(vm, "guest", "toolsRunningStatus", default="Not Available"),
+                "num_cpu":               capacity["num_cpu"],
+                "memory_mb":             capacity["memory_mb"],
+                "storage_committed_gb":  capacity["storage_committed_gb"],
+                "storage_uncommitted_gb":capacity["storage_uncommitted_gb"],
+                "datastores":            capacity["datastores"],
+                "snapshot_count":        snap_count,
+                "snapshot_oldest":       snap_oldest,
             }
             inventory.append(record)
         except Exception as exc:

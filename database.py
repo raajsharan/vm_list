@@ -14,7 +14,7 @@ from cryptography.fernet import Fernet
 
 import os
 from sqlalchemy import (
-    Column, DateTime, Integer, String, Text, create_engine,
+    Boolean, Column, DateTime, Integer, String, Text, create_engine, text,
 )
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import declarative_base, sessionmaker
@@ -81,6 +81,14 @@ class VmInventoryRecord(Base):
     created_date = Column(String(64))
     power_state = Column(String(64))
     tools_status = Column(String(64))
+    # Capacity / resource fields (added later — see _ensure_columns migration)
+    num_cpu = Column(Integer)
+    memory_mb = Column(Integer)
+    storage_committed_gb = Column(String(32))
+    storage_uncommitted_gb = Column(String(32))
+    datastores = Column(Text)
+    snapshot_count = Column(Integer)
+    snapshot_oldest = Column(String(64))
 
 
 class VmAssetEdit(Base):
@@ -121,6 +129,29 @@ class SchedulerRecord(Base):
     enabled = Column(String(5), default="true")
 
 
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    username = Column(String(150), nullable=False, unique=True)
+    password_hash = Column(Text, nullable=False)
+    role = Column(String(20), default="viewer")     # "admin" | "viewer"
+    active = Column(Boolean, default=True)
+    created_at = Column(DateTime)
+    last_login = Column(DateTime)
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    created_at = Column(DateTime, nullable=False)
+    level = Column(String(16), default="info")       # info | warning | error
+    category = Column(String(64))                    # discovery | drift | asset | system
+    host = Column(String(255))
+    message = Column(Text, nullable=False)
+
+
 def build_url_from_env() -> Optional[str]:
     """
     Build a SQLAlchemy/psycopg URL from individual DB_* env vars, percent-encoding
@@ -153,11 +184,44 @@ def init_app(database_url: Optional[str]):
         engine = create_engine(database_url, echo=False, future=True)
         SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
         Base.metadata.create_all(engine)
+        _ensure_columns()
         logger.info("Database initialized for %s", database_url)
     except SQLAlchemyError as exc:
         engine = None
         SessionLocal = None
         logger.exception("Failed to initialize database: %s", exc)
+
+
+def is_configured() -> bool:
+    """True when a usable database connection has been initialized."""
+    return SessionLocal is not None
+
+
+# Columns added after the initial release. create_all() never adds columns to
+# an existing table, so we ALTER-ADD them defensively (Postgres supports
+# IF NOT EXISTS). Safe to run on every startup.
+_ADDED_COLUMNS = {
+    "num_cpu":                "INTEGER",
+    "memory_mb":              "INTEGER",
+    "storage_committed_gb":   "VARCHAR(32)",
+    "storage_uncommitted_gb": "VARCHAR(32)",
+    "datastores":             "TEXT",
+    "snapshot_count":         "INTEGER",
+    "snapshot_oldest":        "VARCHAR(64)",
+}
+
+
+def _ensure_columns() -> None:
+    if engine is None:
+        return
+    try:
+        with engine.begin() as conn:
+            for col, ddl in _ADDED_COLUMNS.items():
+                conn.execute(text(
+                    f"ALTER TABLE vm_inventory ADD COLUMN IF NOT EXISTS {col} {ddl}"
+                ))
+    except SQLAlchemyError as exc:
+        logger.warning("Column migration skipped/failed: %s", exc)
 
 
 def save_inventory(records: list[dict], source_host: str):
@@ -186,6 +250,13 @@ def save_inventory(records: list[dict], source_host: str):
                 created_date=_to_text(record.get("created_date")),
                 power_state=_to_text(record.get("power_state")),
                 tools_status=_to_text(record.get("tools_status")),
+                num_cpu=record.get("num_cpu") if isinstance(record.get("num_cpu"), int) else None,
+                memory_mb=record.get("memory_mb") if isinstance(record.get("memory_mb"), int) else None,
+                storage_committed_gb=_to_text(record.get("storage_committed_gb")),
+                storage_uncommitted_gb=_to_text(record.get("storage_uncommitted_gb")),
+                datastores=_to_text(record.get("datastores")),
+                snapshot_count=record.get("snapshot_count") if isinstance(record.get("snapshot_count"), int) else None,
+                snapshot_oldest=_to_text(record.get("snapshot_oldest")),
             )
             session.add(vm)
         session.commit()
@@ -210,6 +281,13 @@ def _row_to_dict(row: VmInventoryRecord, include_source: bool = False) -> dict:
         "created_date":   _from_text(row.created_date)    or "Not Available",
         "power_state":    _from_text(row.power_state)     or "unknown",
         "tools_status":   _from_text(row.tools_status)    or "Not Available",
+        "num_cpu":               row.num_cpu,
+        "memory_mb":             row.memory_mb,
+        "storage_committed_gb":  _from_text(row.storage_committed_gb),
+        "storage_uncommitted_gb":_from_text(row.storage_uncommitted_gb),
+        "datastores":            _from_text(row.datastores) or [],
+        "snapshot_count":        row.snapshot_count or 0,
+        "snapshot_oldest":       _from_text(row.snapshot_oldest) or "",
     }
     if include_source:
         d["source_host"]   = row.source_host or ""
@@ -448,3 +526,381 @@ def load_latest_inventory_all_hosts() -> list[dict]:
         return []
     finally:
         session.close()
+
+
+# ===========================================================================
+# Users (multi-user authentication)
+# ===========================================================================
+
+def count_users() -> int:
+    if SessionLocal is None:
+        return 0
+    session = SessionLocal()
+    try:
+        return session.query(User).count()
+    except SQLAlchemyError:
+        return 0
+    finally:
+        session.close()
+
+
+def list_users() -> list[dict]:
+    if SessionLocal is None:
+        return []
+    session = SessionLocal()
+    try:
+        rows = session.query(User).order_by(User.username).all()
+        return [{
+            "id":         u.id,
+            "username":   u.username,
+            "role":       u.role or "viewer",
+            "active":     bool(u.active),
+            "created_at": u.created_at.strftime("%Y-%m-%d %H:%M UTC") if u.created_at else "",
+            "last_login": u.last_login.strftime("%Y-%m-%d %H:%M UTC") if u.last_login else "never",
+        } for u in rows]
+    except SQLAlchemyError as exc:
+        logger.exception("Failed to list users: %s", exc)
+        return []
+    finally:
+        session.close()
+
+
+def get_user(username: str) -> Optional[dict]:
+    """Return a user dict including password_hash, or None."""
+    if SessionLocal is None or not username:
+        return None
+    session = SessionLocal()
+    try:
+        u = session.query(User).filter(User.username == username).one_or_none()
+        if not u:
+            return None
+        return {
+            "id": u.id, "username": u.username, "password_hash": u.password_hash,
+            "role": u.role or "viewer", "active": bool(u.active),
+        }
+    except SQLAlchemyError:
+        return None
+    finally:
+        session.close()
+
+
+def create_user(username: str, password_hash: str, role: str = "viewer",
+                active: bool = True) -> tuple[bool, str]:
+    if SessionLocal is None:
+        return False, "Database is not configured."
+    if not username or not password_hash:
+        return False, "Username and password are required."
+    session = SessionLocal()
+    try:
+        if session.query(User).filter(User.username == username).count():
+            return False, f"User '{username}' already exists."
+        session.add(User(
+            username=username, password_hash=password_hash,
+            role=role if role in ("admin", "viewer") else "viewer",
+            active=active, created_at=datetime.utcnow(),
+        ))
+        session.commit()
+        return True, ""
+    except SQLAlchemyError as exc:
+        session.rollback()
+        return False, str(getattr(exc, "orig", exc))[:200]
+    finally:
+        session.close()
+
+
+def set_user_password(user_id: int, password_hash: str) -> bool:
+    if SessionLocal is None:
+        return False
+    session = SessionLocal()
+    try:
+        u = session.get(User, user_id)
+        if not u:
+            return False
+        u.password_hash = password_hash
+        session.commit()
+        return True
+    except SQLAlchemyError:
+        session.rollback()
+        return False
+    finally:
+        session.close()
+
+
+def update_user(user_id: int, role: Optional[str] = None,
+                active: Optional[bool] = None) -> bool:
+    if SessionLocal is None:
+        return False
+    session = SessionLocal()
+    try:
+        u = session.get(User, user_id)
+        if not u:
+            return False
+        if role in ("admin", "viewer"):
+            u.role = role
+        if active is not None:
+            u.active = active
+        session.commit()
+        return True
+    except SQLAlchemyError:
+        session.rollback()
+        return False
+    finally:
+        session.close()
+
+
+def delete_user(user_id: int) -> bool:
+    if SessionLocal is None:
+        return False
+    session = SessionLocal()
+    try:
+        u = session.get(User, user_id)
+        if not u:
+            return False
+        session.delete(u)
+        session.commit()
+        return True
+    except SQLAlchemyError:
+        session.rollback()
+        return False
+    finally:
+        session.close()
+
+
+def admin_count() -> int:
+    """Number of active admin users — used to prevent locking everyone out."""
+    if SessionLocal is None:
+        return 0
+    session = SessionLocal()
+    try:
+        return session.query(User).filter(User.role == "admin", User.active == True).count()  # noqa: E712
+    except SQLAlchemyError:
+        return 0
+    finally:
+        session.close()
+
+
+def touch_last_login(username: str) -> Optional[datetime]:
+    """Update last_login to now; return the PREVIOUS last_login (for the
+    login notification popup). Returns None if there was no prior login."""
+    if SessionLocal is None:
+        return None
+    session = SessionLocal()
+    try:
+        u = session.query(User).filter(User.username == username).one_or_none()
+        if not u:
+            return None
+        prev = u.last_login
+        u.last_login = datetime.utcnow()
+        session.commit()
+        return prev
+    except SQLAlchemyError:
+        session.rollback()
+        return None
+    finally:
+        session.close()
+
+
+# ===========================================================================
+# Notifications (surfaced as a popup on login)
+# ===========================================================================
+
+def add_notification(level: str, category: str, message: str,
+                     host: Optional[str] = None) -> None:
+    if SessionLocal is None:
+        return
+    session = SessionLocal()
+    try:
+        session.add(Notification(
+            created_at=datetime.utcnow(),
+            level=level if level in ("info", "warning", "error") else "info",
+            category=(category or "system")[:64],
+            host=(host or "")[:255],
+            message=message,
+        ))
+        session.commit()
+    except SQLAlchemyError as exc:
+        session.rollback()
+        logger.warning("Failed to store notification: %s", exc)
+    finally:
+        session.close()
+
+
+def _notif_to_dict(n: Notification) -> dict:
+    return {
+        "id":         n.id,
+        "created_at": n.created_at.strftime("%Y-%m-%d %H:%M UTC") if n.created_at else "",
+        "level":      n.level or "info",
+        "category":   n.category or "system",
+        "host":       n.host or "",
+        "message":    n.message or "",
+    }
+
+
+def recent_notifications(limit: int = 100) -> list[dict]:
+    if SessionLocal is None:
+        return []
+    session = SessionLocal()
+    try:
+        rows = (session.query(Notification)
+                .order_by(Notification.created_at.desc(), Notification.id.desc())
+                .limit(limit).all())
+        return [_notif_to_dict(n) for n in rows]
+    except SQLAlchemyError:
+        return []
+    finally:
+        session.close()
+
+
+def notifications_since(since: Optional[datetime], limit: int = 25) -> list[dict]:
+    """Notifications created strictly after `since` (newest first).
+    If `since` is None (first ever login), returns the most recent few."""
+    if SessionLocal is None:
+        return []
+    session = SessionLocal()
+    try:
+        q = session.query(Notification)
+        if since is not None:
+            q = q.filter(Notification.created_at > since)
+        rows = (q.order_by(Notification.created_at.desc(), Notification.id.desc())
+                .limit(limit).all())
+        return [_notif_to_dict(n) for n in rows]
+    except SQLAlchemyError:
+        return []
+    finally:
+        session.close()
+
+
+def clear_notifications() -> int:
+    if SessionLocal is None:
+        return 0
+    session = SessionLocal()
+    try:
+        n = session.query(Notification).delete()
+        session.commit()
+        return n
+    except SQLAlchemyError:
+        session.rollback()
+        return 0
+    finally:
+        session.close()
+
+
+# ===========================================================================
+# Drift / change detection between the two most recent snapshots per host
+# ===========================================================================
+
+def _host_batches(session, host: str, max_batches: int = 2) -> list:
+    """Cluster a host's distinct discovered_at timestamps into discovery
+    'batches' (timestamps within 30 min of each other = one batch).
+    Returns [(hi_dt, lo_dt), ...] newest-first."""
+    from datetime import timedelta
+    dts = [r[0] for r in (
+        session.query(VmInventoryRecord.discovered_at)
+        .filter(VmInventoryRecord.source_host == host)
+        .distinct()
+        .order_by(VmInventoryRecord.discovered_at.desc())
+        .all()
+    )]
+    batches: list = []
+    for dt in dts:
+        if batches and (batches[-1][1] - dt) <= timedelta(minutes=30):
+            batches[-1] = (batches[-1][0], dt)   # extend lower bound
+        else:
+            if len(batches) >= max_batches:
+                break
+            batches.append((dt, dt))
+    return batches
+
+
+def _ip_set(row) -> set:
+    ips = _from_text(row.ip_addresses) or []
+    if isinstance(ips, str):
+        ips = [ips]
+    return {str(i).strip().lower() for i in ips if i and str(i).strip().lower() != "not available"}
+
+
+def compute_drift_for_host(host: str) -> Optional[dict]:
+    """Diff the latest snapshot against the previous one for a single host."""
+    if SessionLocal is None:
+        return None
+    session = SessionLocal()
+    try:
+        batches = _host_batches(session, host, max_batches=2)
+        if len(batches) < 2:
+            return None
+        (lat_hi, lat_lo), (prev_hi, prev_lo) = batches[0], batches[1]
+
+        def load(lo, hi):
+            rows = (session.query(VmInventoryRecord)
+                    .filter(VmInventoryRecord.source_host == host,
+                            VmInventoryRecord.discovered_at >= lo,
+                            VmInventoryRecord.discovered_at <= hi)
+                    .all())
+            return {r.vm_name: r for r in rows}
+
+        latest, prev = load(lat_lo, lat_hi), load(prev_lo, prev_hi)
+
+        added   = [_row_to_dict(latest[n], include_source=True)
+                   for n in latest if n not in prev]
+        removed = [_row_to_dict(prev[n], include_source=True)
+                   for n in prev if n not in latest]
+        changed = []
+        for name, row in latest.items():
+            if name not in prev:
+                continue
+            old = prev[name]
+            diffs = []
+            if (row.power_state or "") != (old.power_state or ""):
+                diffs.append({"field": "Power state",
+                              "old": old.power_state or "unknown",
+                              "new": row.power_state or "unknown"})
+            if _ip_set(row) != _ip_set(old):
+                diffs.append({"field": "IP addresses",
+                              "old": ", ".join(sorted(_ip_set(old))) or "—",
+                              "new": ", ".join(sorted(_ip_set(row))) or "—"})
+            if (row.esxi_host_name or "") != (old.esxi_host_name or ""):
+                diffs.append({"field": "ESXi host",
+                              "old": _from_text(old.esxi_host_name) or "—",
+                              "new": _from_text(row.esxi_host_name) or "—"})
+            if diffs:
+                changed.append({"name": name, "host": host, "diffs": diffs})
+
+        return {
+            "host":       host,
+            "latest_dt":  lat_hi.strftime("%Y-%m-%d %H:%M UTC") if lat_hi else "",
+            "prev_dt":    prev_hi.strftime("%Y-%m-%d %H:%M UTC") if prev_hi else "",
+            "added":      added,
+            "removed":    removed,
+            "changed":    changed,
+            "latest_count": len(latest),
+            "prev_count":   len(prev),
+        }
+    except SQLAlchemyError as exc:
+        logger.exception("Drift computation failed for %s: %s", host, exc)
+        return None
+    finally:
+        session.close()
+
+
+def distinct_source_hosts() -> list[str]:
+    if SessionLocal is None:
+        return []
+    session = SessionLocal()
+    try:
+        rows = (session.query(VmInventoryRecord.source_host)
+                .distinct().order_by(VmInventoryRecord.source_host).all())
+        return [r[0] for r in rows if r[0]]
+    except SQLAlchemyError:
+        return []
+    finally:
+        session.close()
+
+
+def compute_drift_all() -> list[dict]:
+    """Drift for every host that has at least two snapshots."""
+    out = []
+    for host in distinct_source_hosts():
+        d = compute_drift_for_host(host)
+        if d is not None:
+            out.append(d)
+    return out

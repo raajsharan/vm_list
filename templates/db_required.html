@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Database required — VMware Inventory{% endblock %}
+
+{% block content %}
+<div class="page-asset-dash">
+  <div class="empty-state">
+    <div class="empty-icon">⛁</div>
+    <h1 class="page-title" style="margin-bottom:.4rem">{{ feature }} needs PostgreSQL</h1>
+    <p class="hero-sub" style="max-width:560px;margin:0 auto 1rem">
+      This feature relies on historical inventory snapshots stored in PostgreSQL.
+      Configure the database connection in <code>.env</code>
+      (<code>DB_HOST</code>, <code>DB_NAME</code>, <code>DB_USER</code>, <code>DB_PASSWORD</code>)
+      and restart the service.
+    </p>
+    <a href="{{ url_for('dashboard') }}" class="btn btn--outline">← Back to Dashboard</a>
+  </div>
+</div>
+{% endblock %}

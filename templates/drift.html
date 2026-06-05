@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}Drift — VMware Inventory{% endblock %}
+
+{% block content %}
+<div class="page-asset-dash">
+  <div class="inventory-header">
+    <div>
+      <div class="page-label">CHANGE DETECTION</div>
+      <h1 class="page-title">Inventory <span class="accent">Drift</span></h1>
+      <p class="hero-sub" style="margin-top:.4rem">
+        What changed between the two most recent discovery snapshots, per source host.
+      </p>
+    </div>
+    <div class="inventory-actions">
+      <a href="{{ url_for('stale') }}" class="btn btn--outline">Stale &amp; Orphaned →</a>
+    </div>
+  </div>
+
+  <!-- Totals -->
+  <div class="adash-cards" style="margin-bottom:1.2rem">
+    <div class="adash-card">
+      <div class="adc-val" style="color:var(--green)">+{{ totals.added }}</div>
+      <div class="adc-label">VMs added</div>
+    </div>
+    <div class="adash-card">
+      <div class="adc-val" style="color:var(--red, #e0564f)">−{{ totals.removed }}</div>
+      <div class="adc-label">VMs removed</div>
+    </div>
+    <div class="adash-card">
+      <div class="adc-val" style="color:var(--yellow)">{{ totals.changed }}</div>
+      <div class="adc-label">VMs changed</div>
+    </div>
+  </div>
+
+  {% if not hosts %}
+  <div class="empty-state">
+    <div class="empty-icon">≈</div>
+    <p>No drift to show yet — at least two discovery snapshots per host are required.
+       Run discovery again (or wait for the scheduler) to build history.</p>
+  </div>
+  {% endif %}
+
+  {% for h in hosts %}
+  <div class="card" style="margin-bottom:1.2rem">
+    <div class="card-header" style="justify-content:space-between">
+      <h2 class="card-title">{{ h.host }}</h2>
+      <span style="font-size:.7rem;color:var(--text-muted)">
+        {{ h.prev_dt }} ({{ h.prev_count }} VMs) → {{ h.latest_dt }} ({{ h.latest_count }} VMs)
+      </span>
+    </div>
+
+    {% if not h.added and not h.removed and not h.changed %}
+      <p style="color:var(--text-muted);font-size:.8rem;padding:.4rem 0">No changes between these two snapshots.</p>
+    {% endif %}
+
+    {% if h.added %}
+    <h3 class="drift-sub drift-sub--add">＋ Added ({{ h.added|length }})</h3>
+    <div class="drift-chips">
+      {% for vm in h.added %}<span class="drift-chip drift-chip--add">{{ vm.name }}</span>{% endfor %}
+    </div>
+    {% endif %}
+
+    {% if h.removed %}
+    <h3 class="drift-sub drift-sub--rem">− Removed ({{ h.removed|length }})</h3>
+    <div class="drift-chips">
+      {% for vm in h.removed %}<span class="drift-chip drift-chip--rem">{{ vm.name }}</span>{% endfor %}
+    </div>
+    {% endif %}
+
+    {% if h.changed %}
+    <h3 class="drift-sub drift-sub--chg">≠ Changed ({{ h.changed|length }})</h3>
+    <div class="vm-scroll-wrap">
+      <table class="vm-table">
+        <thead><tr><th>VM</th><th>Field</th><th>Before</th><th>After</th></tr></thead>
+        <tbody>
+          {% for c in h.changed %}
+            {% for d in c.diffs %}
+            <tr>
+              {% if loop.first %}<td rowspan="{{ c.diffs|length }}"><span class="vm-name">{{ c.name }}</span></td>{% endif %}
+              <td style="font-size:.75rem;color:var(--text-muted)">{{ d.field }}</td>
+              <td style="font-family:var(--mono);font-size:.74rem;color:var(--text-dim)">{{ d.old }}</td>
+              <td style="font-family:var(--mono);font-size:.74rem">{{ d.new }}</td>
+            </tr>
+            {% endfor %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Notifications — VMware Inventory{% endblock %}
+
+{% block content %}
+<div class="page-asset-dash">
+  <div class="inventory-header">
+    <div>
+      <div class="page-label">ALERTS</div>
+      <h1 class="page-title">Notifications</h1>
+      <p class="hero-sub" style="margin-top:.4rem">
+        {{ items|length }} recent event{{ 's' if items|length != 1 else '' }} ·
+        discovery failures, inventory drift and untracked VMs
+      </p>
+    </div>
+    {% if current_user.is_admin and items %}
+    <div class="inventory-actions">
+      <form method="POST" action="{{ url_for('notifications_clear') }}"
+            onsubmit="return confirm('Clear all notifications?')">
+        <button type="submit" class="btn btn--outline">Clear all</button>
+      </form>
+    </div>
+    {% endif %}
+  </div>
+
+  {% if items %}
+  <div class="card" style="padding:0;overflow:hidden">
+    {% for n in items %}
+    <div class="notif-row notif-row--{{ n.level }}">
+      <span class="notif-dot notif-dot--{{ n.level }}"></span>
+      <div style="flex:1">
+        <div class="notif-msg">{{ n.message }}</div>
+        <div class="notif-meta">
+          <span class="lp-level">{{ n.level|upper }}</span>
+          <span class="lp-cat">{{ n.category }}</span>
+          {% if n.host %}<span class="lp-cat">{{ n.host }}</span>{% endif %}
+          <span class="lp-time">{{ n.created_at }}</span>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <div class="empty-icon">🔔</div>
+    <p>No notifications yet. Events appear here after scheduled discoveries run.</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

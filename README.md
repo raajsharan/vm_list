@@ -6,11 +6,18 @@ A lightweight Flask web application that discovers and displays virtual machine 
 
 - Connect to **vCenter** or **standalone ESXi** via pyVmomi
 - Collect: VM name, guest hostname, IPs, ESXi host IP, OS type/version, MAC addresses, created date, power state
-- **Sortable, searchable** results table
-- **Export** to CSV or JSON
-- **Cached results** — last discovery is persisted for offline viewing
-- **Scheduled discovery** via cron or systemd timer
-- No credentials are ever stored or logged
+- **Capacity & snapshots**: vCPU, memory, committed/provisioned storage, datastores, snapshot count + oldest-snapshot age
+- **Multi-user authentication** with `admin` / `viewer` roles, CSRF protection, and hardened session cookies
+- **Change detection (Drift)**: what was added / removed / changed between the two most recent snapshots per host
+- **Stale & orphaned VM hygiene**: removed-since-last-run, powered-on-but-no-IP, and powered-off lists
+- **Snapshot age report**: flags snapshots older than a configurable threshold
+- **In-app notifications**: discovery failures, inventory drift, and untracked VMs — surfaced as a popup on next login
+- **Asset Inventory integration**: match VM IPs against the internal Asset / Ext. Asset Inventory, edit, and push entries
+- **MAC → IP lookup** from uploaded spreadsheets
+- Stats **dashboard**, **ESXi topology** view, **sortable/searchable** tables
+- **Export** to CSV or JSON · **read-only JSON API** (`/api/v1/*`)
+- **Scheduled discovery** (in-process scheduler, cron, or systemd timer)
+- vCenter/ESXi credentials are encrypted at rest; passwords are never logged
 
 ---
 
@@ -18,6 +25,7 @@ A lightweight Flask web application that discovers and displays virtual machine 
 
 - Ubuntu Server 24.04 LTS
 - Python 3.12
+- **PostgreSQL** — required for authentication, dashboards, drift, and notifications
 - Network access to vCenter/ESXi on port 443
 - VMware Tools running on VMs (for hostname/IP data)
 
@@ -48,15 +56,66 @@ pip install -r requirements.txt
 export FLASK_SECRET=$(python3 -c "import secrets; print(secrets.token_hex(32))")
 ```
 
-### 4. Configure PostgreSQL persistence
+### 4. Configure PostgreSQL (required)
 
-If you want discoveries saved to PostgreSQL, set `DATABASE_URL` before starting the app:
+Authentication, dashboards, drift, and notifications all need PostgreSQL.
+Set the `DB_*` variables in `.env` (preferred) or a single `DATABASE_URL`:
 
-```bash
-export DATABASE_URL=postgresql+psycopg2://user:password@localhost/vm_inventory
+```ini
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=vmware_inventory
+DB_USER=vmware_user
+DB_PASSWORD=change-me
+# Required for credential encryption:
+ENCRYPTION_KEY=<output of: python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())">
 ```
 
-The app will create the required table automatically on startup.
+The app creates all required tables (and migrates new columns) automatically on
+startup. To migrate an existing database out-of-band instead, run:
+
+```bash
+psql "$DATABASE_URL" -f sql/migrate_v2_auth_drift.sql
+```
+
+### 5. First login
+
+On first startup, if no users exist, an initial admin account is created from
+`INITIAL_ADMIN_USERNAME` / `INITIAL_ADMIN_PASSWORD` (default **admin / admin**).
+**Log in and change the password immediately** via the **Users** page. A warning
+notification is raised until you do.
+
+---
+
+## Authentication & Roles
+
+| Role     | Can do                                                                 |
+|----------|------------------------------------------------------------------------|
+| `admin`  | Everything: discovery, credentials, settings, asset edits, user mgmt    |
+| `viewer` | Read-only: dashboards, drift, stale, snapshots, MAC lookup, exports     |
+
+- All form submissions are CSRF-protected (token auto-injected into every POST form).
+- Set `SESSION_COOKIE_SECURE=true` when serving over HTTPS.
+- Admin-only mutation routes are enforced server-side, not just hidden in the UI.
+
+---
+
+## Read-only JSON API
+
+Endpoints under `/api/v1/` accept either an authenticated browser session or an
+`X-API-Key: <API_KEY>` header (set `API_KEY` in `.env`):
+
+| Endpoint                  | Returns                                              |
+|---------------------------|------------------------------------------------------|
+| `GET /api/v1/vms`         | Consolidated VM list (optional `?host=` filter)      |
+| `GET /api/v1/hosts`       | Per-host VM counts + power states                    |
+| `GET /api/v1/stats`       | Totals, power states, asset-inventory coverage       |
+| `GET /api/v1/drift`       | Added/removed/changed VMs per host                   |
+| `GET /api/v1/notifications`| Recent notifications                                |
+
+```bash
+curl -H "X-API-Key: $API_KEY" http://localhost:8000/api/v1/stats
+```
 
 ---
 
@@ -88,6 +147,12 @@ sudo systemctl start vmware-inventory
 sudo systemctl status vmware-inventory
 sudo journalctl -u vmware-inventory -f
 ```
+
+> **Multi-worker note:** the in-process scheduler must run in exactly one
+> process. Under gunicorn with multiple workers, a file lock ensures only the
+> first worker starts the scheduler. Prefer `--workers 1` for the scheduler
+> process, or set `ENABLE_SCHEDULER=false` and run discovery via the systemd
+> timer / cron below.
 
 ---
 
@@ -146,18 +211,27 @@ sudo systemctl list-timers vmware-discovery.timer
 
 ```
 vmware-inventory/
-├── app.py                    # Flask app + routes
-├── vmware_client.py          # pyVmomi connection & VM data retrieval
+├── app.py                    # Flask app factory + routes + request guard (auth/CSRF)
+├── auth.py                   # Multi-user auth, CSRF, decorators, admin bootstrap
+├── notifier.py               # Generates notifications from discovery events
+├── vmware_client.py          # pyVmomi connection, VM data, capacity & snapshots
 ├── data_processor.py         # Data normalisation for display/export
-├── cache.py                  # File-based result cache
+├── database.py               # SQLAlchemy: inventory, users, notifications, drift
+├── credential_store.py       # Encrypted vCenter/ESXi credential storage
+├── scheduler.py              # APScheduler + single-process file lock
+├── asset_lookup.py           # Internal Asset Inventory API client
+├── mac_lookup.py             # MAC→IP spreadsheet parsing/index
+├── config_store.py           # .env-backed UI settings
+├── cache.py                  # File-based result cache (DB fallback)
 ├── discover_cron.py          # CLI script for scheduled/cron use
-├── templates/
-│   ├── base.html             # Base layout
-│   ├── index.html            # Connection form
-│   └── inventory.html        # VM results table
-├── static/
-│   └── style.css             # UI styles
-├── cache/                    # Auto-created; stores last_inventory.json
+├── templates/                # base, login, users, account, notifications,
+│   │                         #   drift, stale, snapshots, db_required, +existing
+│   └── ...
+├── static/style.css          # UI styles
+├── sql/
+│   ├── create_vm_asset_edits.sql
+│   └── migrate_v2_auth_drift.sql   # users, notifications, capacity columns
+├── cache/                    # Auto-created; per-host JSON, keys, scheduler lock
 ├── requirements.txt
 ├── vmware-inventory.service  # systemd service unit
 ├── vmware-discovery.service  # systemd one-shot discovery unit

@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="csrf-token" content="{{ csrf_token() }}">
   <title>{% block title %}VMware Inventory{% endblock %}</title>
   <!-- Apply saved theme immediately — before CSS paint — to prevent flash -->
   <script>(function(){var t=localStorage.getItem('vmw-theme')||'dark';document.documentElement.setAttribute('data-theme',t);}());</script>
@@ -18,17 +19,39 @@
         <a href="{{ url_for('index') }}" class="brand-name">VMWARE INVENTORY</a>
       </div>
       <nav class="header-nav">
+        {% if current_user and current_user.id %}
         <a href="{{ url_for('dashboard') }}" class="nav-link nav-link--highlight">DASHBOARD</a>
         <a href="{{ url_for('all_vms') }}" class="nav-link">ALL VMs</a>
+        <a href="{{ url_for('drift') }}" class="nav-link">DRIFT</a>
+        <a href="{{ url_for('stale') }}" class="nav-link">STALE</a>
+        <a href="{{ url_for('snapshots') }}" class="nav-link">SNAPSHOTS</a>
         <span class="nav-sep">|</span>
+        {% if current_user.is_admin %}
         <a href="{{ url_for('index') }}" class="nav-link">CONNECT</a>
         <a href="{{ url_for('credentials') }}" class="nav-link">CREDENTIALS</a>
+        {% endif %}
         <a href="{{ url_for('view_cached') }}" class="nav-link">CACHED VIEW</a>
         <a href="{{ url_for('esxi_topology') }}" class="nav-link">ESXi HOSTS</a>
         <a href="{{ url_for('mac_lookup') }}" class="nav-link">MAC LOOKUP</a>
         <a href="{{ url_for('asset_details') }}" class="nav-link">ASSETS</a>
+        {% if current_user.is_admin %}
         <a href="{{ url_for('asset_editor') }}" class="nav-link">EDITOR</a>
+        {% endif %}
+        <span class="nav-sep">|</span>
+        <a href="{{ url_for('notifications') }}" class="nav-link" title="Notifications">
+          ⬤ ALERTS{% if nav_notif_count %} <span class="nav-badge">{{ nav_notif_count }}</span>{% endif %}
+        </a>
+        {% if current_user.is_admin %}
+        <a href="{{ url_for('users') }}" class="nav-link">USERS</a>
         <a href="{{ url_for('settings') }}" class="nav-link">SETTINGS</a>
+        {% endif %}
+        <a href="{{ url_for('account') }}" class="nav-link" title="Account">
+          {{ current_user.username }}{% if current_user.is_admin %} ★{% endif %}
+        </a>
+        <form method="POST" action="{{ url_for('logout') }}" style="display:contents">
+          <button type="submit" class="nav-link nav-logout" title="Sign out">LOGOUT</button>
+        </form>
+        {% endif %}
         <button class="theme-toggle" id="themeToggle" aria-label="Toggle light/dark theme" title="Toggle theme">
           <span class="theme-icon-dark">☀</span>
           <span class="theme-icon-light">☾</span>
@@ -43,7 +66,7 @@
       <span class="sep">//</span>
       <span>SUPPORTS VCENTER &amp; STANDALONE ESXI</span>
       <span class="sep">//</span>
-      <span>NO CREDENTIALS ARE STORED</span>
+      <span>MULTI-USER · ROLE-BASED ACCESS</span>
       <span class="sep">//</span>
       <span>UBUNTU 24.04 · PYTHON 3.12 · PYVMOMI</span>
       <span class="sep">//</span>
@@ -51,7 +74,7 @@
       <span class="sep">//</span>
       <span>SUPPORTS VCENTER &amp; STANDALONE ESXI</span>
       <span class="sep">//</span>
-      <span>NO CREDENTIALS ARE STORED</span>
+      <span>MULTI-USER · ROLE-BASED ACCESS</span>
       <span class="sep">//</span>
       <span>UBUNTU 24.04 · PYTHON 3.12 · PYVMOMI</span>
     </div>
@@ -84,10 +107,48 @@
     <span class="sep">·</span>
     <span>Credentials are never stored or logged</span>
     <span class="sep">·</span>
-    <span>pyVmomi {{ "{}" }}</span>
+    <span>Role-based access · CSRF protected</span>
   </footer>
 
   {% block scripts %}{% endblock %}
+
+  <!-- Login notification popup (shown once, right after sign-in) -->
+  {% if login_notifs %}
+  <div class="login-popup-overlay" id="loginPopup">
+    <div class="login-popup">
+      <div class="login-popup-head">
+        <span>🔔 Since your last sign-in</span>
+        <button type="button" class="login-popup-close" id="loginPopupClose" aria-label="Close">✕</button>
+      </div>
+      <div class="login-popup-body">
+        {% for n in login_notifs %}
+        <div class="login-popup-item login-popup-item--{{ n.level }}">
+          <div class="lp-meta">
+            <span class="lp-level">{{ n.level|upper }}</span>
+            <span class="lp-cat">{{ n.category }}</span>
+            <span class="lp-time">{{ n.created_at }}</span>
+          </div>
+          <div class="lp-msg">{{ n.message }}</div>
+        </div>
+        {% endfor %}
+      </div>
+      <div class="login-popup-foot">
+        <a href="{{ url_for('notifications') }}" class="btn-small">View all notifications</a>
+        <button type="button" class="btn-small btn-primary" id="loginPopupDismiss">Dismiss</button>
+      </div>
+    </div>
+  </div>
+  <script>
+  (function(){
+    var ov=document.getElementById('loginPopup');
+    function close(){ if(ov) ov.remove(); }
+    var c=document.getElementById('loginPopupClose'); if(c) c.addEventListener('click',close);
+    var d=document.getElementById('loginPopupDismiss'); if(d) d.addEventListener('click',close);
+    if(ov) ov.addEventListener('click',function(e){ if(e.target===ov) close(); });
+    document.addEventListener('keydown',function(e){ if(e.key==='Escape') close(); });
+  })();
+  </script>
+  {% endif %}
 
   <!-- Theme toggle -->
   <script>
@@ -99,6 +160,23 @@
       var next  = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
       html.setAttribute('data-theme', next);
       localStorage.setItem('vmw-theme', next);
+    });
+  })();
+  </script>
+
+  <!-- CSRF: inject token into every POST form + expose helper for fetch() -->
+  <script>
+  (function () {
+    var token = document.querySelector('meta[name="csrf-token"]');
+    token = token ? token.getAttribute('content') : '';
+    window.CSRF_TOKEN = token;
+    document.querySelectorAll('form').forEach(function (f) {
+      var m = (f.getAttribute('method') || 'get').toLowerCase();
+      if (m === 'post' && !f.querySelector('input[name="_csrf_token"]')) {
+        var i = document.createElement('input');
+        i.type = 'hidden'; i.name = '_csrf_token'; i.value = token;
+        f.appendChild(i);
+      }
     });
   })();
   </script>

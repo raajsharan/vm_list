@@ -456,7 +456,10 @@ python3 app.py --port 8080 --debug</pre>
       testResult.className = 'asset-test-result';
       testResult.textContent = '';
       try {
-        const resp = await fetch('{{ url_for("test_asset_api") }}', { method: 'POST' });
+        const resp = await fetch('{{ url_for("test_asset_api") }}', {
+          method: 'POST',
+          headers: { 'X-CSRF-Token': window.CSRF_TOKEN || '' },
+        });
         const data = await resp.json();
         testResult.textContent = data.message;
         testResult.className = 'asset-test-result ' + (data.ok ? 'asset-test-result--ok' : 'asset-test-result--err');

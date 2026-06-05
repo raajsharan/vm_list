@@ -7,6 +7,7 @@ circular-import issues at startup.
 """
 
 import logging
+import os
 import threading
 from datetime import datetime, timezone
 from typing import Optional
@@ -19,6 +20,43 @@ logger = logging.getLogger(__name__)
 _sched       = BackgroundScheduler(daemon=True)
 _active_lock = threading.Lock()
 _active: set = set()    # hosts currently being discovered
+_lock_fh = None         # held open for the process lifetime when we own the lock
+
+
+def _acquire_singleton_lock() -> bool:
+    """Ensure only ONE process runs the scheduler. Under a multi-worker WSGI
+    server (e.g. gunicorn) each worker imports the app; without this guard every
+    worker would run duplicate discoveries. Uses an OS file lock so the first
+    worker wins and the rest skip starting the scheduler.
+
+    Set ENABLE_SCHEDULER=false to disable the in-process scheduler entirely
+    (e.g. when running discovery via a dedicated systemd timer / cron instead).
+    """
+    global _lock_fh
+    if os.environ.get("ENABLE_SCHEDULER", "true").lower() != "true":
+        logger.info("ENABLE_SCHEDULER=false — in-process scheduler disabled.")
+        return False
+
+    lock_path = os.path.join(os.path.dirname(__file__), "cache", ".scheduler.lock")
+    os.makedirs(os.path.dirname(lock_path), exist_ok=True)
+    try:
+        _lock_fh = open(lock_path, "w")
+        try:
+            import fcntl  # Linux/macOS
+            fcntl.flock(_lock_fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except ImportError:
+            try:
+                import msvcrt  # Windows
+                msvcrt.locking(_lock_fh.fileno(), msvcrt.LK_NBLCK, 1)
+            except Exception:
+                pass  # dev fallback: no OS locking available
+        return True
+    except (OSError, BlockingIOError):
+        if _lock_fh:
+            _lock_fh.close()
+            _lock_fh = None
+        logger.info("Scheduler lock held by another process — not starting scheduler here.")
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -30,6 +68,7 @@ def _discover(host: str) -> None:
     import vmware_client
     import cache as cache_store
     import database
+    import notifier
 
     with _active_lock:
         if host in _active:
@@ -54,12 +93,14 @@ def _discover(host: str) -> None:
         cache_store.save(records, host)
         database.save_inventory(records, host)
         credential_store.record_run(host, "success", len(records))
+        notifier.after_discovery(host, records)
         logger.info("Discovery for %s complete: %d VMs", host, len(records))
 
     except Exception as exc:
         label = type(exc).__name__
         short = str(exc)[:120]
         credential_store.record_run(host, f"{label}: {short}")
+        notifier.discovery_failed(host, f"{label}: {short}")
         logger.error("Discovery error for %s: %s", host, exc)
 
     finally:
@@ -72,8 +113,11 @@ def _discover(host: str) -> None:
 # ---------------------------------------------------------------------------
 
 def init() -> None:
-    """Start the scheduler and load all enabled jobs from credential store."""
+    """Start the scheduler and load all enabled jobs from credential store.
+    Only the process that wins the singleton lock actually starts it."""
     if _sched.running:
+        return
+    if not _acquire_singleton_lock():
         return
     _sched.start()
     logger.info("Background scheduler started")

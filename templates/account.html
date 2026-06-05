@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Account — VMware Inventory{% endblock %}
+
+{% block content %}
+<div class="page-asset-dash">
+  <div class="inventory-header">
+    <div>
+      <div class="page-label">ACCOUNT</div>
+      <h1 class="page-title">{{ current_user.username }}
+        <span class="accent">{{ '· admin' if current_user.is_admin else '· viewer' }}</span>
+      </h1>
+      <p class="hero-sub" style="margin-top:.4rem">Manage your sign-in credentials.</p>
+    </div>
+  </div>
+
+  <div class="card" style="max-width:520px">
+    <div class="card-header"><h2 class="card-title">Change password</h2></div>
+    <form method="POST" action="{{ url_for('account_password') }}" autocomplete="off" class="connect-form">
+      <div class="form-group">
+        <label class="form-label" for="current_password">Current password</label>
+        <input class="form-input" id="current_password" name="current_password" type="password" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="new_password">New password <span style="color:var(--text-dim)">(min 8 chars)</span></label>
+        <input class="form-input" id="new_password" name="new_password" type="password" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="confirm_password">Confirm new password</label>
+        <input class="form-input" id="confirm_password" name="confirm_password" type="password" required>
+      </div>
+      <button type="submit" class="btn btn--primary" style="margin-top:.5rem">Update password</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

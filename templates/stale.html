@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Stale & Orphaned — VMware Inventory{% endblock %}
+
+{% macro vmtable(vms, source_col=True) %}
+  <div class="vm-scroll-wrap">
+    <table class="vm-table">
+      <thead>
+        <tr><th>VM Name</th><th>Hostname</th><th>IPs</th><th>Power</th><th>ESXi Host</th>{% if source_col %}<th>Source</th>{% endif %}</tr>
+      </thead>
+      <tbody>
+        {% for vm in vms %}
+        <tr>
+          <td><span class="vm-name">{{ vm.name }}</span></td>
+          <td style="font-family:var(--mono);font-size:.75rem;color:var(--text-muted)">{{ vm.hostname if vm.hostname != 'Not Available' else '—' }}</td>
+          <td style="font-family:var(--mono);font-size:.74rem">{{ vm.ip_addresses if vm.ip_addresses != 'Not Available' else '—' }}</td>
+          <td>
+            {% set pw = vm.power_state %}
+            <span class="power-badge power-badge--{{ pw }}">{{ 'ON' if pw=='poweredOn' else ('OFF' if pw=='poweredOff' else pw|upper) }}</span>
+          </td>
+          <td style="font-family:var(--mono);font-size:.74rem;color:var(--text-muted)">{{ vm.esxi_host_name if vm.esxi_host_name != 'Not Available' else '—' }}</td>
+          {% if source_col %}<td style="font-family:var(--mono);font-size:.72rem;color:var(--text-muted)">{{ vm.source_host or '—' }}</td>{% endif %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endmacro %}
+
+{% block content %}
+<div class="page-asset-dash">
+  <div class="inventory-header">
+    <div>
+      <div class="page-label">HYGIENE</div>
+      <h1 class="page-title">Stale &amp; <span class="accent">Orphaned</span> VMs</h1>
+      <p class="hero-sub" style="margin-top:.4rem">
+        Decommission candidates across {{ total }} VMs in the latest snapshot.
+      </p>
+    </div>
+    <div class="inventory-actions">
+      <a href="{{ url_for('drift') }}" class="btn btn--outline">← Drift</a>
+    </div>
+  </div>
+
+  <div class="adash-cards" style="margin-bottom:1.2rem">
+    <div class="adash-card"><div class="adc-val" style="color:var(--red,#e0564f)">{{ removed|length }}</div><div class="adc-label">Removed since last run</div></div>
+    <div class="adash-card"><div class="adc-val" style="color:var(--yellow)">{{ no_network|length }}</div><div class="adc-label">On, but no IP (Tools?)</div></div>
+    <div class="adash-card"><div class="adc-val">{{ powered_off|length }}</div><div class="adc-label">Powered off</div></div>
+  </div>
+
+  <div class="card" style="margin-bottom:1.2rem">
+    <div class="card-header"><h2 class="card-title">Removed since previous snapshot</h2></div>
+    {% if removed %}{{ vmtable(removed) }}
+    {% else %}<p style="color:var(--text-muted);font-size:.8rem">No VMs were removed between the last two snapshots.</p>{% endif %}
+  </div>
+
+  <div class="card" style="margin-bottom:1.2rem">
+    <div class="card-header"><h2 class="card-title">Powered on but no usable IP</h2>
+      <span style="font-size:.7rem;color:var(--text-muted)">VMware Tools likely not running</span></div>
+    {% if no_network %}{{ vmtable(no_network) }}
+    {% else %}<p style="color:var(--text-muted);font-size:.8rem">None — every running VM reports an IP.</p>{% endif %}
+  </div>
+
+  <div class="card">
+    <div class="card-header"><h2 class="card-title">Powered off</h2>
+      <span style="font-size:.7rem;color:var(--text-muted)">review for decommissioning</span></div>
+    {% if powered_off %}{{ vmtable(powered_off) }}
+    {% else %}<p style="color:var(--text-muted);font-size:.8rem">No powered-off VMs.</p>{% endif %}
+  </div>
+</div>
+{% endblock %}

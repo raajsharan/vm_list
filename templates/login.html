@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Sign in — VMware Inventory{% endblock %}
+
+{% block content %}
+<div class="auth-wrap">
+  <div class="card auth-card">
+    <div class="auth-head">
+      <div class="brand-icon" style="font-size:1.6rem">◈</div>
+      <h1 class="page-title" style="margin:.4rem 0 0">Sign in</h1>
+      <p class="hero-sub">VMware Inventory · authorised users only</p>
+    </div>
+
+    {% if not db_ready %}
+    <div class="flash flash--error" style="margin-bottom:1rem">
+      <span class="flash-icon">✗</span>
+      Database not configured — authentication is unavailable. Set DB_* in <code>.env</code> and restart.
+    </div>
+    {% endif %}
+
+    <form method="POST" action="{{ url_for('login') }}" autocomplete="off" class="connect-form">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="next" value="{{ next }}">
+      <div class="form-group">
+        <label class="form-label" for="username">Username</label>
+        <input class="form-input" id="username" name="username" type="text" required autofocus>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="password">Password</label>
+        <input class="form-input" id="password" name="password" type="password" required>
+      </div>
+      <button type="submit" class="btn btn--primary" style="width:100%;margin-top:.5rem"{{ ' disabled' if not db_ready else '' }}>
+        Sign in →
+      </button>
+    </form>
+  </div>
+</div>
+{% endblock %}

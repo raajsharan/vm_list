@@ -10,10 +10,11 @@ import io
 import json
 import logging
 import os
+from datetime import timedelta
 
 from flask import (
     Flask, render_template, request, redirect,
-    url_for, flash, Response, session,
+    url_for, flash, Response, session, jsonify,
 )
 
 from dotenv import load_dotenv
@@ -28,6 +29,8 @@ import scheduler
 import config_store
 import mac_lookup as mac_lookup_store
 import asset_lookup as asset_api
+import auth
+import notifier
 
 # ---------------------------------------------------------------------------
 # Logging — never log passwords
@@ -79,15 +82,253 @@ def _check_asset_ips(mapped_ips_str: str, vm_ips_str: str, asset_ip_map: dict) -
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="templates", static_folder="static")
     app.secret_key = os.environ.get("FLASK_SECRET", os.urandom(32))
-    # Sessions are server-side only; we never persist credentials there either
+    # Hardened cookie defaults. SESSION_COOKIE_SECURE should be true behind HTTPS
+    # (set SESSION_COOKIE_SECURE=true in .env when serving over TLS / nginx).
     app.config["SESSION_COOKIE_HTTPONLY"] = True
     app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+    app.config["SESSION_COOKIE_SECURE"]   = (
+        os.environ.get("SESSION_COOKIE_SECURE", "false").lower() == "true"
+    )
+    app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(
+        hours=int(os.environ.get("SESSION_HOURS", "12"))
+    )
 
     database.init_app(os.environ.get("DATABASE_URL"))
+    if not database.is_configured():
+        logger.error(
+            "DATABASE NOT CONFIGURED. Authentication, dashboards, drift and "
+            "notifications require PostgreSQL — set DB_HOST/DB_NAME/DB_USER/"
+            "DB_PASSWORD in .env. The app will start but login will be unavailable."
+        )
+    auth.bootstrap_admin()
     scheduler.init()
     # Kick off a background fetch so the first user request doesn't pay the
     # cold-cache cost. Safe no-op if the API isn't configured yet.
     asset_api.warm_caches_async()
+
+    # -----------------------------------------------------------------------
+    # Global request guard: authentication + CSRF
+    # -----------------------------------------------------------------------
+    @app.before_request
+    def _guard():
+        ep = request.endpoint or ""
+
+        # Read-only JSON API: separate key/session auth, no CSRF (GET only)
+        if ep.startswith("api_"):
+            if not auth.api_key_valid():
+                return jsonify({"error": "unauthorized"}), 401
+            return None
+
+        # Public endpoints (login page/handler, static assets, health check)
+        if ep in auth._PUBLIC_ENDPOINTS:
+            return None
+
+        # Everything else requires an authenticated session
+        if not auth.is_authenticated():
+            if request.method == "GET":
+                return redirect(url_for("login", next=request.full_path))
+            return redirect(url_for("login"))
+
+        # CSRF on all state-changing requests
+        if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+            if not auth.validate_csrf():
+                flash("Security token expired or invalid — please try again.", "error")
+                return redirect(request.referrer or url_for("dashboard"))
+        return None
+
+    # -----------------------------------------------------------------------
+    # Template globals: CSRF token, current user, notification badge
+    # -----------------------------------------------------------------------
+    @app.context_processor
+    def _inject_globals():
+        login_notifs = session.pop("login_notifs", None)  # show once after login
+        nav_count = 0
+        if auth.is_authenticated():
+            try:
+                nav_count = len(database.recent_notifications(limit=20))
+            except Exception:
+                nav_count = 0
+        return {
+            "csrf_token":    auth.get_csrf_token,
+            "current_user":  auth.current_user(),
+            "nav_notif_count": nav_count,
+            "login_notifs":  login_notifs,
+        }
+
+    # -----------------------------------------------------------------------
+    # Authentication routes
+    # -----------------------------------------------------------------------
+    @app.route("/healthz")
+    def healthz():
+        return jsonify({"status": "ok", "db": database.is_configured()})
+
+    @app.route("/login", methods=["GET", "POST"])
+    def login():
+        if auth.is_authenticated():
+            return redirect(url_for("dashboard"))
+
+        if request.method == "POST":
+            if not auth.validate_csrf():
+                flash("Security token expired — please try again.", "error")
+                return redirect(url_for("login"))
+            if not database.is_configured():
+                flash("Database is not configured — cannot authenticate. "
+                      "Set DB_* values in .env and restart.", "error")
+                return redirect(url_for("login"))
+
+            username = request.form.get("username", "").strip()
+            password = request.form.get("password", "")
+            user = database.get_user(username)
+            if (not user or not user.get("active")
+                    or not auth.verify_password(user["password_hash"], password)):
+                logger.warning("Failed login attempt for '%s'", username)
+                flash("Invalid username or password.", "error")
+                return redirect(url_for("login"))
+
+            prev_login = database.touch_last_login(username)
+            auth.login_session(user)
+            # Notifications created since this user last logged in → login popup
+            session["login_notifs"] = database.notifications_since(prev_login, limit=25)
+            logger.info("User '%s' logged in", username)
+
+            nxt = request.args.get("next") or request.form.get("next") or ""
+            if nxt and nxt.startswith("/") and not nxt.startswith("//"):
+                return redirect(nxt)
+            return redirect(url_for("dashboard"))
+
+        return render_template("login.html",
+                               db_ready=database.is_configured(),
+                               next=request.args.get("next", ""))
+
+    @app.route("/logout", methods=["POST"])
+    def logout():
+        user = auth.current_user()
+        auth.logout_session()
+        flash(f"Signed out{(' — ' + user['username']) if user.get('username') else ''}.", "info")
+        return redirect(url_for("login"))
+
+    # -----------------------------------------------------------------------
+    # Account — change own password
+    # -----------------------------------------------------------------------
+    @app.route("/account", methods=["GET"])
+    @auth.login_required
+    def account():
+        return render_template("account.html")
+
+    @app.route("/account/password", methods=["POST"])
+    @auth.login_required
+    def account_password():
+        current = request.form.get("current_password", "")
+        new1    = request.form.get("new_password", "")
+        new2    = request.form.get("confirm_password", "")
+        me = database.get_user(auth.current_user()["username"])
+        if not me or not auth.verify_password(me["password_hash"], current):
+            flash("Current password is incorrect.", "error")
+            return redirect(url_for("account"))
+        if len(new1) < 8:
+            flash("New password must be at least 8 characters.", "error")
+            return redirect(url_for("account"))
+        if new1 != new2:
+            flash("New passwords do not match.", "error")
+            return redirect(url_for("account"))
+        if database.set_user_password(me["id"], auth.hash_password(new1)):
+            flash("Password changed.", "success")
+        else:
+            flash("Failed to change password.", "error")
+        return redirect(url_for("account"))
+
+    # -----------------------------------------------------------------------
+    # User management (admin only)
+    # -----------------------------------------------------------------------
+    @app.route("/users", methods=["GET"])
+    @auth.admin_required
+    def users():
+        return render_template("users.html", users=database.list_users())
+
+    @app.route("/users/add", methods=["POST"])
+    @auth.admin_required
+    def users_add():
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+        role     = request.form.get("role", "viewer")
+        if not username or not password:
+            flash("Username and password are required.", "error")
+            return redirect(url_for("users"))
+        if len(password) < 8:
+            flash("Password must be at least 8 characters.", "error")
+            return redirect(url_for("users"))
+        ok, err = database.create_user(username, auth.hash_password(password), role=role)
+        flash(f"User '{username}' created." if ok else f"Could not create user: {err}",
+              "success" if ok else "error")
+        return redirect(url_for("users"))
+
+    @app.route("/users/<int:user_id>/password", methods=["POST"])
+    @auth.admin_required
+    def users_reset_password(user_id):
+        password = request.form.get("password", "")
+        if len(password) < 8:
+            flash("Password must be at least 8 characters.", "error")
+            return redirect(url_for("users"))
+        flash("Password reset." if database.set_user_password(user_id, auth.hash_password(password))
+              else "Failed to reset password.",
+              "success")
+        return redirect(url_for("users"))
+
+    @app.route("/users/<int:user_id>/role", methods=["POST"])
+    @auth.admin_required
+    def users_set_role(user_id):
+        role = request.form.get("role", "viewer")
+        # Guard against demoting the last admin
+        if role != "admin" and database.admin_count() <= 1:
+            me = database.list_users()
+            target = next((u for u in me if u["id"] == user_id), None)
+            if target and target["role"] == "admin":
+                flash("Cannot demote the last remaining admin.", "error")
+                return redirect(url_for("users"))
+        database.update_user(user_id, role=role)
+        flash("Role updated.", "success")
+        return redirect(url_for("users"))
+
+    @app.route("/users/<int:user_id>/toggle", methods=["POST"])
+    @auth.admin_required
+    def users_toggle(user_id):
+        target = next((u for u in database.list_users() if u["id"] == user_id), None)
+        if target and target["role"] == "admin" and target["active"] and database.admin_count() <= 1:
+            flash("Cannot disable the last remaining admin.", "error")
+            return redirect(url_for("users"))
+        new_active = not (target["active"] if target else True)
+        database.update_user(user_id, active=new_active)
+        flash("User " + ("enabled." if new_active else "disabled."), "info")
+        return redirect(url_for("users"))
+
+    @app.route("/users/<int:user_id>/delete", methods=["POST"])
+    @auth.admin_required
+    def users_delete(user_id):
+        target = next((u for u in database.list_users() if u["id"] == user_id), None)
+        if target and target["id"] == auth.current_user()["id"]:
+            flash("You cannot delete your own account.", "error")
+            return redirect(url_for("users"))
+        if target and target["role"] == "admin" and database.admin_count() <= 1:
+            flash("Cannot delete the last remaining admin.", "error")
+            return redirect(url_for("users"))
+        flash("User deleted." if database.delete_user(user_id) else "Failed to delete user.", "info")
+        return redirect(url_for("users"))
+
+    # -----------------------------------------------------------------------
+    # Notifications
+    # -----------------------------------------------------------------------
+    @app.route("/notifications", methods=["GET"])
+    @auth.login_required
+    def notifications():
+        return render_template("notifications.html",
+                               items=database.recent_notifications(limit=200))
+
+    @app.route("/notifications/clear", methods=["POST"])
+    @auth.admin_required
+    def notifications_clear():
+        n = database.clear_notifications()
+        flash(f"Cleared {n} notification(s).", "info")
+        return redirect(url_for("notifications"))
 
     # -----------------------------------------------------------------------
     # Routes
@@ -99,6 +340,7 @@ def create_app() -> Flask:
         return render_template("index.html", cached=cached)
 
     @app.route("/discover", methods=["POST"])
+    @auth.admin_required
     def discover():
         host     = request.form.get("host", "").strip()
         username = request.form.get("username", "").strip()
@@ -137,6 +379,7 @@ def create_app() -> Flask:
         # Cache raw records (no creds)
         cache_store.save(raw_records, host)
         database.save_inventory(raw_records, host)
+        notifier.after_discovery(host, raw_records)
 
         display_records = data_processor.normalise_for_display(raw_records)
         flash(f"Discovery complete — {len(display_records)} VMs found on {host}.", "success")
@@ -229,6 +472,7 @@ def create_app() -> Flask:
         )
 
     @app.route("/cache/clear", methods=["POST"])
+    @auth.admin_required
     def clear_cache():
         cache_store.clear()
         flash("Cache cleared.", "info")
@@ -239,6 +483,7 @@ def create_app() -> Flask:
     # -----------------------------------------------------------------------
 
     @app.route("/credentials", methods=["GET"])
+    @auth.admin_required
     def credentials():
         creds        = credential_store.load_all()
         running      = scheduler.active_hosts()
@@ -251,6 +496,7 @@ def create_app() -> Flask:
         )
 
     @app.route("/credentials/add", methods=["POST"])
+    @auth.admin_required
     def cred_add():
         host      = request.form.get("host", "").strip()
         username  = request.form.get("username", "").strip()
@@ -281,6 +527,7 @@ def create_app() -> Flask:
         return redirect(url_for("credentials"))
 
     @app.route("/credentials/<path:host>/edit", methods=["POST"])
+    @auth.admin_required
     def cred_edit(host):
         username  = request.form.get("username", "").strip()
         password  = request.form.get("password", "")
@@ -315,6 +562,7 @@ def create_app() -> Flask:
         return redirect(url_for("credentials"))
 
     @app.route("/credentials/<path:host>/delete", methods=["POST"])
+    @auth.admin_required
     def cred_delete(host):
         credential_store.delete(host)
         scheduler.remove(host)
@@ -322,6 +570,7 @@ def create_app() -> Flask:
         return redirect(url_for("credentials"))
 
     @app.route("/credentials/<path:host>/toggle", methods=["POST"])
+    @auth.admin_required
     def cred_toggle(host):
         enabled = credential_store.toggle(host)
         cred    = credential_store.load_all()
@@ -333,6 +582,7 @@ def create_app() -> Flask:
         return redirect(url_for("credentials"))
 
     @app.route("/credentials/<path:host>/run", methods=["POST"])
+    @auth.admin_required
     def cred_run(host):
         if host in scheduler.active_hosts():
             flash(f"Discovery for {host} is already running.", "warning")
@@ -342,6 +592,7 @@ def create_app() -> Flask:
         return redirect(url_for("credentials"))
 
     @app.route("/credentials/run-selected", methods=["POST"])
+    @auth.admin_required
     def cred_run_selected():
         hosts = request.form.getlist("hosts")
         if not hosts:
@@ -640,6 +891,7 @@ def create_app() -> Flask:
         )
 
     @app.route("/asset-details/add-to-ext", methods=["POST"])
+    @auth.admin_required
     def asset_details_add_to_ext():
         selected = request.form.getlist("selected_vms")
         if not selected:
@@ -800,6 +1052,7 @@ def create_app() -> Flask:
         )
 
     @app.route("/asset-editor/save", methods=["POST"])
+    @auth.admin_required
     def asset_editor_save():
         source_host = request.form.get("source_host", "").strip()
         vm_name     = request.form.get("vm_name", "").strip()
@@ -834,6 +1087,7 @@ def create_app() -> Flask:
         })
 
     @app.route("/asset-editor/add-to-ext", methods=["POST"])
+    @auth.admin_required
     def asset_editor_add_to_ext():
         """Push the EDITED values of selected VMs to Ext. Asset Inventory.
         Skips rows whose IP is already in an inventory to avoid duplicates."""
@@ -894,6 +1148,7 @@ def create_app() -> Flask:
         return redirect(url_for("asset_editor"))
 
     @app.route("/asset-editor/reset", methods=["POST"])
+    @auth.admin_required
     def asset_editor_reset():
         source_host = request.form.get("source_host", "").strip()
         vm_name     = request.form.get("vm_name", "").strip()
@@ -975,6 +1230,7 @@ def create_app() -> Flask:
     # -----------------------------------------------------------------------
 
     @app.route("/settings", methods=["GET"])
+    @auth.admin_required
     def settings():
         cfg           = config_store.load()
         running       = int(os.environ.get("PORT", 5000))
@@ -988,6 +1244,7 @@ def create_app() -> Flask:
                                asset_cache_info=asset_cache_info)
 
     @app.route("/settings/save", methods=["POST"])
+    @auth.admin_required
     def settings_save():
         port_raw  = request.form.get("port", "").strip()
         debug_raw = request.form.get("flask_debug") == "on"
@@ -1087,6 +1344,7 @@ def create_app() -> Flask:
         )
 
     @app.route("/settings/upload-mac", methods=["POST"])
+    @auth.admin_required
     def upload_mac_file():
         uploaded_files = request.files.getlist("mac_file")
         if not uploaded_files or all(not f.filename for f in uploaded_files):
@@ -1122,6 +1380,7 @@ def create_app() -> Flask:
         return redirect(url_for("settings"))
 
     @app.route("/settings/delete-mac/<file_id>", methods=["POST"])
+    @auth.admin_required
     def delete_mac_file(file_id):
         deleted = mac_lookup_store.delete_mapping_file(file_id)
         if deleted:
@@ -1131,12 +1390,14 @@ def create_app() -> Flask:
         return redirect(url_for("settings"))
 
     @app.route("/settings/clear-mac", methods=["POST"])
+    @auth.admin_required
     def clear_mac_file():
         count = mac_lookup_store.clear_all_mappings()
         flash(f"All {count} MAC mapping file(s) cleared.", "info")
         return redirect(url_for("settings"))
 
     @app.route("/settings/save-asset-api", methods=["POST"])
+    @auth.admin_required
     def save_asset_api():
         base_url = request.form.get("asset_api_url", "").strip().rstrip("/")
         username = request.form.get("asset_api_user", "").strip()
@@ -1155,12 +1416,14 @@ def create_app() -> Flask:
         return redirect(url_for("settings"))
 
     @app.route("/settings/test-asset-api", methods=["POST"])
+    @auth.admin_required
     def test_asset_api():
         from flask import jsonify
         ok, msg = asset_api.test_connection()
         return jsonify({"ok": ok, "message": msg})
 
     @app.route("/settings/refresh-asset-cache", methods=["POST"])
+    @auth.admin_required
     def refresh_asset_cache():
         asset_api.invalidate_cache()
         flash("Asset IP cache cleared — will refresh on next MAC Lookup load.", "info")
@@ -1279,6 +1542,169 @@ def create_app() -> Flask:
             has_mapping=bool(mapping),
             asset_configured=asset_configured,
         )
+
+    # -----------------------------------------------------------------------
+    # Drift / change detection (requires PostgreSQL — needs 2+ snapshots)
+    # -----------------------------------------------------------------------
+
+    @app.route("/drift", methods=["GET"])
+    def drift():
+        if not database.is_configured():
+            return render_template("db_required.html", feature="Change detection")
+        hosts = database.compute_drift_all()
+        totals = {
+            "added":   sum(len(h["added"])   for h in hosts),
+            "removed": sum(len(h["removed"]) for h in hosts),
+            "changed": sum(len(h["changed"]) for h in hosts),
+        }
+        return render_template("drift.html", hosts=hosts, totals=totals)
+
+    # -----------------------------------------------------------------------
+    # Stale & orphaned VMs (requires PostgreSQL)
+    # -----------------------------------------------------------------------
+
+    @app.route("/stale", methods=["GET"])
+    def stale():
+        if not database.is_configured():
+            return render_template("db_required.html", feature="Stale & orphaned VMs")
+
+        raw_vms = database.load_latest_inventory_all_hosts()
+        display = data_processor.normalise_for_display(raw_vms)
+
+        # Removed since previous snapshot (from drift)
+        removed = []
+        for d in database.compute_drift_all():
+            for vm in d["removed"]:
+                removed.append(data_processor.normalise_for_display([vm])[0])
+
+        # No network data: powered on but no usable IP (VMware Tools likely down)
+        no_network = [
+            v for v in display
+            if v["power_state"] == "poweredOn" and v["ip_addresses"] == "Not Available"
+        ]
+        # Powered off VMs (candidates for decommission review)
+        powered_off = [v for v in display if v["power_state"] == "poweredOff"]
+
+        return render_template(
+            "stale.html",
+            removed=removed,
+            no_network=no_network,
+            powered_off=powered_off,
+            total=len(display),
+        )
+
+    # -----------------------------------------------------------------------
+    # VM snapshot age report (requires PostgreSQL / capacity fields)
+    # -----------------------------------------------------------------------
+
+    @app.route("/snapshots", methods=["GET"])
+    def snapshots():
+        if not database.is_configured():
+            return render_template("db_required.html", feature="Snapshot age report")
+
+        import datetime as _dt
+        import re as _re
+        raw_vms = database.load_latest_inventory_all_hosts()
+        today = _dt.date.today()
+        rows = []
+        for vm in raw_vms:
+            count = vm.get("snapshot_count") or 0
+            if not count:
+                continue
+            oldest = vm.get("snapshot_oldest") or ""
+            age_days = None
+            m = _re.search(r"(\d{4}-\d{2}-\d{2})", str(oldest))
+            if m:
+                try:
+                    d = _dt.date.fromisoformat(m.group(1))
+                    age_days = (today - d).days
+                except ValueError:
+                    age_days = None
+            rows.append({
+                "name":        vm.get("name", "Not Available"),
+                "source_host": vm.get("source_host", ""),
+                "esxi_host":   vm.get("esxi_host_name", "Not Available"),
+                "power_state": vm.get("power_state", "unknown"),
+                "count":       count,
+                "oldest":      oldest or "—",
+                "age_days":    age_days,
+            })
+        rows.sort(key=lambda r: (r["age_days"] is None, -(r["age_days"] or 0)))
+        stale_threshold = int(os.environ.get("SNAPSHOT_STALE_DAYS", "7"))
+        return render_template("snapshots.html", rows=rows,
+                               total=len(rows),
+                               stale_threshold=stale_threshold)
+
+    # -----------------------------------------------------------------------
+    # Read-only JSON API (session OR X-API-Key header) — endpoints prefixed
+    # api_ so the request guard applies key/session auth instead of redirects.
+    # -----------------------------------------------------------------------
+
+    def _consolidated_or_cache():
+        raw = database.load_latest_inventory_all_hosts()
+        if not raw:
+            raw = cache_store.load_all_hosts()
+        return raw
+
+    @app.route("/api/v1/vms", methods=["GET"], endpoint="api_vms")
+    def api_vms():
+        raw = _consolidated_or_cache()
+        host = request.args.get("host", "").strip()
+        if host:
+            raw = [v for v in raw if v.get("source_host") == host]
+        return jsonify({"count": len(raw), "vms": raw})
+
+    @app.route("/api/v1/hosts", methods=["GET"], endpoint="api_hosts")
+    def api_hosts():
+        raw = _consolidated_or_cache()
+        stats: dict = {}
+        for vm in raw:
+            h = vm.get("source_host", "")
+            s = stats.setdefault(h, {"host": h, "vm_count": 0,
+                                     "powered_on": 0, "powered_off": 0})
+            s["vm_count"] += 1
+            if vm.get("power_state") == "poweredOn":
+                s["powered_on"] += 1
+            elif vm.get("power_state") == "poweredOff":
+                s["powered_off"] += 1
+        return jsonify({"count": len(stats), "hosts": list(stats.values())})
+
+    @app.route("/api/v1/stats", methods=["GET"], endpoint="api_stats")
+    def api_stats():
+        raw = _consolidated_or_cache()
+        asset_configured = asset_api.is_configured()
+        asset_ip_map = asset_api.fetch_all_asset_ips() if asset_configured else {}
+        out = {"total": len(raw), "powered_on": 0, "powered_off": 0,
+               "suspended": 0, "in_asset_inventory": 0, "not_in_inventory": 0}
+        for vm in raw:
+            ps = vm.get("power_state", "")
+            if ps == "poweredOn":
+                out["powered_on"] += 1
+            elif ps == "poweredOff":
+                out["powered_off"] += 1
+            elif ps == "suspended":
+                out["suspended"] += 1
+            if asset_configured:
+                disp = data_processor.normalise_for_display([vm])[0]
+                ips = [i.strip().lower() for i in disp["ip_addresses"].split(" | ")
+                       if i.strip() and i.strip() != "Not Available"]
+                if any(ip in asset_ip_map for ip in ips):
+                    out["in_asset_inventory"] += 1
+                else:
+                    out["not_in_inventory"] += 1
+        return jsonify(out)
+
+    @app.route("/api/v1/drift", methods=["GET"], endpoint="api_drift")
+    def api_drift():
+        if not database.is_configured():
+            return jsonify({"error": "database not configured"}), 503
+        return jsonify({"hosts": database.compute_drift_all()})
+
+    @app.route("/api/v1/notifications", methods=["GET"], endpoint="api_notifications")
+    def api_notifications():
+        if not database.is_configured():
+            return jsonify({"error": "database not configured"}), 503
+        return jsonify({"notifications": database.recent_notifications(limit=100)})
 
     return app
 
