@@ -207,14 +207,18 @@
 
             {% if asset_configured %}
             <td>
+              {% set vtitle = ('Verified against edited IP ' ~ vm.edit.ip_address) if vm.edit.ip_verified else '' %}
               {% if vm.asset_status == 'asset_inv' %}
-                <span class="asset-badge asset-badge--main">Asset Inventory</span>
+                <span class="asset-badge asset-badge--main" title="{{ vtitle }}">Asset Inventory</span>
               {% elif vm.asset_status == 'ext_asset_inv' %}
-                <span class="asset-badge asset-badge--ext">Ext. Asset Inv.</span>
+                <span class="asset-badge asset-badge--ext" title="{{ vtitle }}">Ext. Asset Inv.</span>
               {% elif vm.asset_status == 'both' %}
-                <span class="asset-badge asset-badge--both">Both</span>
+                <span class="asset-badge asset-badge--both" title="{{ vtitle }}">Both</span>
               {% else %}
-                <span class="asset-badge asset-badge--none">Not Found</span>
+                <span class="asset-badge asset-badge--none" title="{{ vtitle }}">Not Found</span>
+              {% endif %}
+              {% if vm.edit.ip_verified %}
+                <span class="ae-verified-mark" title="Status reflects your edited IP ({{ vm.edit.ip_address }})">✎</span>
               {% endif %}
             </td>
 

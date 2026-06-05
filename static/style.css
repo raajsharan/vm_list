@@ -3142,3 +3142,11 @@ tr.ml-unmatched td:first-child {
 .snap-stale { background: rgba(240,192,64,.06); }
 .snap-age-bad { color: var(--red, #e0564f); font-family: var(--mono); font-weight: 600; }
 .snap-age-ok  { color: var(--text-muted); font-family: var(--mono); }
+
+/* Asset Editor: marker shown when Asset Status was verified from the edited IP */
+.ae-verified-mark {
+  margin-left: .35rem;
+  font-size: .72rem;
+  color: var(--accent);
+  cursor: help;
+}

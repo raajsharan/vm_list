@@ -76,6 +76,15 @@ def _check_asset_ips(mapped_ips_str: str, vm_ips_str: str, asset_ip_map: dict) -
     return next(iter(found))
 
 
+def _label_to_status(label: str) -> str:
+    """Map a human label from _check_asset_ips to the internal status key."""
+    return {
+        "Both":                  "both",
+        "Asset Inventory":       "asset_inv",
+        "Ext. Asset Inventory":  "ext_asset_inv",
+    }.get(label, "not_found")
+
+
 # ---------------------------------------------------------------------------
 # App factory
 # ---------------------------------------------------------------------------
@@ -995,50 +1004,59 @@ def create_app() -> Flask:
                     seen.add(ip.lower())
             display["display_ips"] = display_ips
 
-            # Asset status check
-            asset_status_label = (
+            # Editable overlay — loaded first so we can re-verify the edited IP
+            key = f"{source_host}|||{vm_name}".lower()
+            edit = edits.get(key, {})
+            ip_override = (edit.get("ip_address") or "").strip()
+
+            # Original upstream status, from the VM's discovered/mapped IPs.
+            # This governs edit-eligibility (the editor targets untracked assets).
+            original_label = (
                 _check_asset_ips(mapped_ips_str, display["ip_addresses"], asset_ip_map)
                 if asset_configured else "—"
             )
-            if asset_status_label == "Both":
-                asset_status = "both"
-            elif asset_status_label == "Asset Inventory":
-                asset_status = "asset_inv"
-            elif asset_status_label == "Ext. Asset Inventory":
-                asset_status = "ext_asset_inv"
-            else:
-                asset_status = "not_found"
+            original_status = _label_to_status(original_label)
 
-            # Find the best matching full asset record
+            # Effective status shown in the Asset Status column. When the user has
+            # edited the IP, re-verify THAT IP against Asset / Ext. Asset Inventory
+            # so the column (and tabs/stats) reflect the edit. Otherwise use original.
+            if asset_configured and ip_override:
+                effective_label = _check_asset_ips(ip_override, "", asset_ip_map)
+            else:
+                effective_label = original_label
+            asset_status = _label_to_status(effective_label)
+
+            # Best matching full asset record — prefer the edited IP's match.
             matched_record: dict = {}
             if asset_configured:
-                for entry in display_ips:
-                    rec = full_records.get(entry["ip"].lower(), {})
-                    if rec:
-                        matched_record = rec
-                        break
+                if ip_override:
+                    matched_record = full_records.get(ip_override.lower(), {})
+                if not matched_record:
+                    for entry in display_ips:
+                        rec = full_records.get(entry["ip"].lower(), {})
+                        if rec:
+                            matched_record = rec
+                            break
 
             display["asset_status"] = asset_status
             display["asset_record"] = matched_record
 
             stats[asset_status] += 1
 
-            # Editable overlay
-            key = f"{source_host}|||{vm_name}".lower()
-            edit = edits.get(key, {})
-
             display["edit"] = {
                 "asset_name": edit.get("asset_name") or display.get("name", ""),
                 "hostname":   edit.get("hostname")   or (display.get("hostname") if display.get("hostname") != "Not Available" else ""),
-                "ip_address": edit.get("ip_address") or (display_ips[0]["ip"] if display_ips else ""),
+                "ip_address": ip_override or (display_ips[0]["ip"] if display_ips else ""),
                 "os_type":    edit.get("os_type")    or (display.get("os_type") if display.get("os_type") != "Not Available" else ""),
                 "os_version": edit.get("os_version") or (display.get("os_version") if display.get("os_version") != "Not Available" else ""),
                 "updated_at": edit.get("updated_at", ""),
                 "has_override": bool(edit),
+                # True when the status above was computed from the edited IP
+                "ip_verified": bool(asset_configured and ip_override),
             }
-            # Edit allowed only when the asset is NOT found in any upstream list
-            # (or when the Asset API is not configured at all)
-            display["can_edit"] = (not asset_configured) or (asset_status == "not_found")
+            # Edit stays enabled for assets NOT found upstream by their ORIGINAL IP,
+            # so a mistyped edit can always be corrected even after it matches.
+            display["can_edit"] = (not asset_configured) or (original_status == "not_found")
             vms.append(display)
 
         return render_template(
