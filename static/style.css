@@ -3311,6 +3311,18 @@ tr.ml-unmatched td:first-child {
 .dash2-cell-cov span { font-size:.72rem; color:var(--d2-muted); min-width:32px; text-align:right; }
 .dash2-empty { text-align:center; color:var(--d2-muted); font-size:.78rem; padding:1.5rem 0; }
 
+/* Scrollable table body (vCenter coverage) with sticky header */
+.dash2-table-scroll { max-height:360px; overflow-y:auto; }
+.dash2-table-scroll .dash2-table thead th {
+  position:sticky; top:0; background:var(--d2-card); z-index:2;
+  box-shadow:0 1px 0 var(--d2-line);
+}
+
+/* Clickable coverage rows — drill into the VM list for that category */
+a.dash2-hbar-row { padding:.3rem .4rem; margin:0 -.4rem; border-radius:8px; cursor:pointer; transition:background .15s; }
+a.dash2-hbar-row:hover { background:#f5f7ff; }
+a.dash2-hbar-row:hover .dash2-hbar-lbl { color:var(--d2-blue); }
+
 /* Responsive */
 @media (max-width:1100px) {
   .dash2-row1, .dash2-row2, .dash2-row3 { grid-template-columns:1fr; }

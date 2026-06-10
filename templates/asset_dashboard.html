@@ -73,29 +73,30 @@
   <!-- ── Row 2: power donut + coverage live + activity ── -->
   <div class="dash2-row2">
 
-    <!-- Power state donut -->
+    <!-- Power state (coverage-style: total + horizontal bars) -->
     <div class="dash2-card">
       <div class="dash2-card-head"><h2>Power State</h2></div>
-      <div class="dash2-donut-wrap">
-        <canvas id="powerDonut"></canvas>
-        <div class="dash2-donut-center">
-          <div class="dash2-donut-num">{{ '{:,}'.format(t) }}</div>
-          <div class="dash2-donut-lbl">VMs</div>
+      <div class="dash2-live">
+        <div class="dash2-live-lbl">TOTAL VMS</div>
+        <div class="dash2-live-num">{{ '{:,}'.format(t) }}</div>
+        <div class="dash2-live-sub">{{ (pw_on / t * 100)|round|int if t else 0 }}% powered on</div>
+      </div>
+      {% set pwr = [
+        ('Powered On',  pw_on,  'c-green'),
+        ('Powered Off', pw_off, 'c-rose'),
+        ('Suspended',   pw_sus, 'c-amber'),
+      ] %}
+      <div class="dash2-hbars">
+        {% for label, count, cls in pwr %}
+        <div class="dash2-hbar-row">
+          <span class="dash2-hbar-lbl">{{ label }}</span>
+          <div class="dash2-hbar-track">
+            <div class="dash2-hbar-fill {{ cls }}" style="width:{{ (count / t * 100)|round|int if t else 0 }}%"></div>
+          </div>
+          <span class="dash2-hbar-val">{{ '{:,}'.format(count) }}</span>
         </div>
+        {% endfor %}
       </div>
-      <div class="dash2-donut-legend">
-        <span><i class="dot dot-on"></i>Powered On</span>
-        <span><i class="dot dot-off"></i>Powered Off</span>
-        <span><i class="dot dot-sus"></i>Suspended</span>
-      </div>
-      <table class="dash2-mini-table">
-        <thead><tr><th>State</th><th>VMs</th><th>Share</th></tr></thead>
-        <tbody>
-          <tr><td><i class="dot dot-on"></i>Powered On</td><td>{{ pw_on }}</td><td>{{ (pw_on / t * 100)|round|int if t else 0 }}%</td></tr>
-          <tr><td><i class="dot dot-off"></i>Powered Off</td><td>{{ pw_off }}</td><td>{{ (pw_off / t * 100)|round|int if t else 0 }}%</td></tr>
-          <tr><td><i class="dot dot-sus"></i>Suspended</td><td>{{ pw_sus }}</td><td>{{ (pw_sus / t * 100)|round|int if t else 0 }}%</td></tr>
-        </tbody>
-      </table>
     </div>
 
     <!-- Coverage breakdown (live-visits style) -->
@@ -107,20 +108,20 @@
         <div class="dash2-live-sub">{{ pct_cov }}% mapped to an asset list</div>
       </div>
       {% set cov = [
-        ('Asset Inventory', stats.asset_inv, 'c-blue'),
-        ('Ext. Asset Inv.', stats.ext_asset_inv, 'c-green'),
-        ('Both Lists', stats.both, 'c-amber'),
-        ('Not Found', stats.not_found, 'c-rose'),
+        ('Asset Inventory', stats.asset_inv, 'c-blue', 'asset_inv'),
+        ('Ext. Asset Inv.', stats.ext_asset_inv, 'c-green', 'ext_asset_inv'),
+        ('Both Lists', stats.both, 'c-amber', 'both'),
+        ('Not Found', stats.not_found, 'c-rose', 'not_found'),
       ] %}
       <div class="dash2-hbars">
-        {% for label, count, cls in cov %}
-        <div class="dash2-hbar-row">
+        {% for label, count, cls, cat in cov %}
+        <a href="{{ url_for('dashboard_vms', category=cat) }}" class="dash2-hbar-row dash2-hbar-link" title="List all VMs — {{ label }}">
           <span class="dash2-hbar-lbl">{{ label }}</span>
           <div class="dash2-hbar-track">
             <div class="dash2-hbar-fill {{ cls }}" style="width:{{ (count / t * 100)|round|int if t else 0 }}%"></div>
           </div>
           <span class="dash2-hbar-val">{{ '{:,}'.format(count) }}</span>
-        </div>
+        </a>
         {% endfor %}
       </div>
       {% if not asset_configured %}
@@ -165,6 +166,7 @@
         <h2>vCenter / Source Coverage</h2>
         <span class="dash2-card-sub">{{ vcenter_stats|length }} sources</span>
       </div>
+      <div class="dash2-table-scroll">
       <table class="dash2-table">
         <thead>
           <tr><th>Source</th><th>Total</th><th>Covered</th><th>Coverage</th></tr>
@@ -189,6 +191,7 @@
           {% endfor %}
         </tbody>
       </table>
+      </div>
     </div>
 
     <div class="dash2-card">
@@ -260,30 +263,6 @@
     });
   }
 
-  // ── Power state — doughnut ──
-  const pdCanvas = document.getElementById('powerDonut');
-  if (pdCanvas) {
-    new Chart(pdCanvas, {
-      type: 'doughnut',
-      data: {
-        labels: ['Powered On', 'Powered Off', 'Suspended'],
-        datasets: [{
-          data: [{{ pw_on }}, {{ pw_off }}, {{ pw_sus }}],
-          backgroundColor: ['#2fc98e', '#fb7185', '#f6b73c'],
-          borderWidth: 0,
-          hoverOffset: 6,
-        }],
-      },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        cutout: '72%',
-        plugins: {
-          legend: { display: false },
-          tooltip: { callbacks: { label: c => ` ${c.label}: ${c.parsed}` } },
-        },
-      },
-    });
-  }
 })();
 </script>
 {% endblock %}
