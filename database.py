@@ -14,7 +14,7 @@ from cryptography.fernet import Fernet
 
 import os
 from sqlalchemy import (
-    Boolean, Column, DateTime, Integer, String, Text, create_engine, text,
+    Boolean, Column, DateTime, Integer, String, Text, create_engine, func, text,
 )
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import declarative_base, sessionmaker
@@ -181,7 +181,11 @@ def init_app(database_url: Optional[str]):
         return
 
     try:
-        engine = create_engine(database_url, echo=False, future=True)
+        engine = create_engine(
+            database_url, echo=False, future=True,
+            pool_pre_ping=True,   # validate connections before use — avoids stalls on stale/dropped Postgres conns
+            pool_recycle=1800,    # recycle connections every 30 min
+        )
         SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
         Base.metadata.create_all(engine)
         _ensure_columns()
@@ -747,6 +751,24 @@ def recent_notifications(limit: int = 100) -> list[dict]:
         return [_notif_to_dict(n) for n in rows]
     except SQLAlchemyError:
         return []
+    finally:
+        session.close()
+
+
+def notification_count(cap: int = 20) -> int:
+    """Number of notifications for the nav badge, counted at the DB (capped).
+
+    Runs on every authenticated page, so this avoids materializing rows and
+    JSON-decoding each one just to call len() — it counts at most `cap` rows.
+    """
+    if SessionLocal is None:
+        return 0
+    session = SessionLocal()
+    try:
+        subq = session.query(Notification.id).limit(cap).subquery()
+        return int(session.query(func.count()).select_from(subq).scalar() or 0)
+    except SQLAlchemyError:
+        return 0
     finally:
         session.close()
 

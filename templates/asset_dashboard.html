@@ -38,7 +38,7 @@
       Older VMs return <code>Not Available</code>, so the line stays flat. Re-run discovery against a 6.7+ vCenter to populate it.
     </div>
     {% elif daily_total == 0 %}
-    <div style="padding:.6rem .9rem;margin-bottom:.6rem;border-radius:6px;background:rgba(79,163,224,.08);border:1px solid rgba(79,163,224,.25);font-size:.74rem;color:var(--text-muted)">
+    <div style="padding:.6rem .9rem;margin-bottom:.6rem;border-radius:6px;background:rgba(47,123,255,.08);border:1px solid rgba(47,123,255,.25);font-size:.74rem;color:var(--text-muted)">
       No VMs were created in the last 30 days. Creation dates do exist for older VMs in the database.
     </div>
     {% endif %}
@@ -130,7 +130,7 @@
       <div class="card-header" style="margin-bottom:.75rem">
         <h2 class="card-title">VMs by vCenter / Source</h2>
         <div class="adash-legend">
-          <span class="adl-dot" style="background:rgba(79,163,224,.7)"></span><span>Total VMs</span>
+          <span class="adl-dot" style="background:rgba(47,123,255,.7)"></span><span>Total VMs</span>
           {% if asset_configured %}
           <span class="adl-dot" style="background:rgba(62,207,142,.7)"></span><span>Asset Inventory</span>
           <span class="adl-dot" style="background:rgba(240,192,64,.7)"></span><span>Ext. Asset Inv.</span>
@@ -297,17 +297,17 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="{{ url_for('static', filename='vendor/chart.umd.min.js') }}"></script>
 <script>
 (function () {
 
   const _cs = getComputedStyle(document.documentElement);
   const C = {
     green:  '#3ecf8e', greenA:  'rgba(62,207,142,',
-    accent: '#4fa3e0', accentA: 'rgba(79,163,224,',
+    accent: '#2f7bff', accentA: 'rgba(47,123,255,',
     yellow: '#f0c040', yellowA: 'rgba(240,192,64,',
     red:    '#e05470', redA:    'rgba(224,84,112,',
-    dim:    '#3a4260', dimA:    'rgba(58,66,96,',
+    dim:    '#3a425e', dimA:    'rgba(58,66,94,',
     border: _cs.getPropertyValue('--border').trim()     || '#1e2535',
     muted:  _cs.getPropertyValue('--text-muted').trim() || '#5a6480',
   };

@@ -154,7 +154,7 @@ def create_app() -> Flask:
         nav_count = 0
         if auth.is_authenticated():
             try:
-                nav_count = len(database.recent_notifications(limit=20))
+                nav_count = database.notification_count(cap=20)
             except Exception:
                 nav_count = 0
         return {

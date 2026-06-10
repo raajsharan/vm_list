@@ -7,8 +7,8 @@
   <title>{% block title %}VMware Inventory{% endblock %}</title>
   <!-- Apply saved theme immediately — before CSS paint — to prevent flash -->
   <script>(function(){var t=localStorage.getItem('vmw-theme')||'dark';document.documentElement.setAttribute('data-theme',t);}());</script>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <!-- Self-hosted IBM Plex fonts (no external CDN — avoids render-blocking on internal networks) -->
+  <link rel="stylesheet" href="{{ url_for('static', filename='fonts/fonts.css') }}" />
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
 </head>
 <body>
