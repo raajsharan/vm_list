@@ -690,21 +690,27 @@ def create_app() -> Flask:
         sorted_vcenters = sorted(vc_map.items(), key=lambda x: x[1]["total"], reverse=True)
         sorted_os       = sorted(os_map.items(), key=lambda x: x[1], reverse=True)[:12]
 
-        # Daily VM creation trend over the last 30 days (VMware created_date field,
-        # aggregated across all ESXi/vCenter sources). Always render the window —
-        # if every day is zero the line just flattens, which is more informative
-        # than hiding the card.
+        # VM-creation trend aggregated by month over the last 12 months
+        # (VMware created_date field, across all ESXi/vCenter sources).
+        import calendar as _cal
         import datetime as _dt
-        created_by_date  = database.get_vm_created_by_date()
-        end              = _dt.date.today()
-        start            = end - _dt.timedelta(days=29)   # 30-day inclusive window
-        daily_series     = []
-        d = start
-        while d <= end:
-            ds = d.isoformat()
-            daily_series.append({"date": ds, "count": created_by_date.get(ds, 0)})
-            d += _dt.timedelta(days=1)
-        daily_total = sum(p["count"] for p in daily_series)
+        created_by_date = database.get_vm_created_by_date()
+        end             = _dt.date.today()
+        month_tot: dict = {}
+        for ds, cnt in created_by_date.items():
+            month_tot[str(ds)[:7]] = month_tot.get(str(ds)[:7], 0) + cnt   # 'YYYY-MM'
+        seq, yy, mm = [], end.year, end.month
+        for _ in range(12):
+            seq.append((yy, mm))
+            mm -= 1
+            if mm == 0:
+                mm, yy = 12, yy - 1
+        seq.reverse()
+        monthly_series = [
+            {"label": _cal.month_abbr[m], "count": month_tot.get(f"{y:04d}-{m:02d}", 0)}
+            for (y, m) in seq
+        ]
+        monthly_total = sum(p["count"] for p in monthly_series)
 
         return render_template(
             "asset_dashboard.html",
@@ -714,9 +720,9 @@ def create_app() -> Flask:
             power_stats=pwr_map,
             asset_configured=asset_configured,
             creds=creds,
-            daily_series=daily_series,
-            daily_total=daily_total,
-            daily_have_any=bool(created_by_date),
+            monthly_series=monthly_series,
+            monthly_total=monthly_total,
+            recent_notifs=database.recent_notifications(limit=6),
         )
 
     # -----------------------------------------------------------------------

@@ -2,294 +2,216 @@
 {% block title %}Dashboard — VMware Inventory{% endblock %}
 
 {% block content %}
-<div class="page-asset-dash">
+{% set t = stats.total %}
+{% set covered = stats.asset_inv + stats.ext_asset_inv + stats.both %}
+{% set pct_cov = (covered / t * 100)|round|int if t > 0 else 0 %}
+{% set pw_on  = power_stats.get('poweredOn', 0) %}
+{% set pw_off = power_stats.get('poweredOff', 0) %}
+{% set pw_sus = power_stats.get('suspended', 0) %}
 
-  <!-- ── Page header ── -->
-  <div class="inventory-header">
+<div class="dash2">
+
+  <!-- ── Header ── -->
+  <div class="dash2-head">
     <div>
-      <div class="page-label">ASSET INTELLIGENCE</div>
-      <h1 class="page-title">Inventory <span class="accent">Dashboard</span></h1>
-      <p class="hero-sub" style="margin-top:.4rem">
-        VM coverage across Asset Inventory and Ext. Asset Inventory
-        &nbsp;·&nbsp; {{ stats.total }} VMs &nbsp;·&nbsp; {{ creds|length }} source{{ 's' if creds|length != 1 else '' }}
-      </p>
+      <h1 class="dash2-title">Dashboard</h1>
+      <div class="dash2-crumbs">Inventory <span>/</span> Dashboard <span>/</span> Analytics</div>
     </div>
-    <div class="inventory-actions">
-      <a href="{{ url_for('mac_lookup') }}" class="btn btn--secondary">→ MAC Lookup</a>
-      <a href="{{ url_for('all_vms') }}"    class="btn btn--outline">All VMs</a>
+    <a href="{{ url_for('all_vms') }}" class="dash2-btn">All VMs</a>
+  </div>
+
+  <!-- ── Row 1: identity card + stat cards + bar chart ── -->
+  <div class="dash2-row1">
+
+    <!-- Identity / coverage promo card -->
+    <div class="dash2-promo">
+      <div class="dash2-promo-name">VMware<br>Inventory</div>
+      <p class="dash2-promo-sub">Live VM coverage across Asset Inventory &amp; Ext. Asset Inventory.</p>
+      <a class="dash2-promo-btn"
+         href="{{ url_for('credentials') if current_user.is_admin else url_for('all_vms') }}">
+        {{ 'Run Discovery' if current_user.is_admin else 'View All VMs' }}
+      </a>
+      <div class="dash2-promo-ring" style="--pct:{{ pct_cov }}">
+        <div class="dash2-promo-ring-inner">
+          <div class="dash2-promo-pct">{{ pct_cov }}%</div>
+          <div class="dash2-promo-pct-lbl">covered</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right: stat row + bar chart -->
+    <div class="dash2-rightcol">
+      <div class="dash2-stats">
+        <div class="dash2-stat">
+          <div class="dash2-stat-ico ico-blue">▦</div>
+          <div><div class="dash2-stat-val">{{ '{:,}'.format(t) }}</div><div class="dash2-stat-lbl">Total VMs</div></div>
+        </div>
+        <div class="dash2-stat">
+          <div class="dash2-stat-ico ico-green">⏻</div>
+          <div><div class="dash2-stat-val">{{ '{:,}'.format(pw_on) }}</div><div class="dash2-stat-lbl">Powered On</div></div>
+        </div>
+        <div class="dash2-stat">
+          <div class="dash2-stat-ico ico-pink">◐</div>
+          <div><div class="dash2-stat-val">{{ pct_cov }}%</div><div class="dash2-stat-lbl">Coverage</div></div>
+        </div>
+        <div class="dash2-stat">
+          <div class="dash2-stat-ico ico-purple">⛁</div>
+          <div><div class="dash2-stat-val">{{ vcenter_stats|length }}</div><div class="dash2-stat-lbl">Sources</div></div>
+        </div>
+      </div>
+
+      <div class="dash2-card dash2-bar-card">
+        <div class="dash2-card-head">
+          <h2>VMs Created per Month</h2>
+          <span class="dash2-card-sub">Last 12 months · {{ monthly_total }} total</span>
+        </div>
+        <div class="dash2-bar-wrap"><canvas id="monthlyChart"></canvas></div>
+      </div>
     </div>
   </div>
 
-  <!-- ══════════════════════════════════════════════════════════ -->
-  <!-- DAILY VMs CREATED CARD                                    -->
-  <!-- ══════════════════════════════════════════════════════════ -->
-  <div class="card adash-daily-card">
-    <div class="card-header" style="margin-bottom:.6rem">
-      <h2 class="card-title">VMs Created per Day</h2>
-      <span style="font-size:.7rem;color:var(--text-muted)">
-        Last {{ daily_series|length }} days · all ESXi / vCenter sources
-        {% if daily_total %} · {{ daily_total }} VM{{ 's' if daily_total != 1 else '' }} created in window{% endif %}
-      </span>
-    </div>
-    {% if not daily_have_any %}
-    <div style="padding:.6rem .9rem;margin-bottom:.6rem;border-radius:6px;background:rgba(240,192,64,.08);border:1px solid rgba(240,192,64,.25);font-size:.74rem;color:var(--text-muted);line-height:1.4">
-      <strong style="color:var(--yellow)">No VM creation dates were captured.</strong>
-      VMware's <code>config.createDate</code> is only populated for VMs created in vSphere 6.7+.
-      Older VMs return <code>Not Available</code>, so the line stays flat. Re-run discovery against a 6.7+ vCenter to populate it.
-    </div>
-    {% elif daily_total == 0 %}
-    <div style="padding:.6rem .9rem;margin-bottom:.6rem;border-radius:6px;background:rgba(47,123,255,.08);border:1px solid rgba(47,123,255,.25);font-size:.74rem;color:var(--text-muted)">
-      No VMs were created in the last 30 days. Creation dates do exist for older VMs in the database.
-    </div>
-    {% endif %}
-    <div class="adash-daily-wrap">
-      <canvas id="dailyChart"></canvas>
-    </div>
-  </div>
+  <!-- ── Row 2: power donut + coverage live + activity ── -->
+  <div class="dash2-row2">
 
-  <!-- ══════════════════════════════════════════════════════════ -->
-  <!-- TOP STAT CARDS                                            -->
-  <!-- ══════════════════════════════════════════════════════════ -->
-  {% set t = stats.total %}
-  {% set pct_ai  = ((stats.asset_inv  + stats.both) / t * 100)|round|int if t > 0 else 0 %}
-  {% set pct_ext = ((stats.ext_asset_inv + stats.both) / t * 100)|round|int if t > 0 else 0 %}
-  {% set pct_nf  = (stats.not_found   / t * 100)|round|int if t > 0 else 0 %}
-  {% set pct_both= (stats.both / t * 100)|round|int if t > 0 else 0 %}
-
-  <div class="adash-cards">
-
-    <a href="{{ url_for('dashboard_vms', category='all') }}" class="adash-card-link">
-    <div class="adash-card">
-      <div class="adc-top">
-        <div class="adc-icon adc-icon--accent">⊞</div>
-        <div class="adc-trend adc-trend--neutral">{{ creds|length }} source{{ 's' if creds|length != 1 else '' }}</div>
-      </div>
-      <div class="adc-val">{{ t }}</div>
-      <div class="adc-label">Total VMs Discovered</div>
-      <div class="adc-bar" style="--bar-w:100%;--bar-c:var(--accent)"></div>
-    </div>
-    </a>
-
-    <a href="{{ url_for('dashboard_vms', category='asset_inv') }}" class="adash-card-link">
-    <div class="adash-card">
-      <div class="adc-top">
-        <div class="adc-icon adc-icon--green">◈</div>
-        <div class="adc-trend adc-trend--green">{{ pct_ai }}% of total</div>
-      </div>
-      <div class="adc-val" style="color:var(--green)">{{ stats.asset_inv + stats.both }}</div>
-      <div class="adc-label">In Asset Inventory</div>
-      <div class="adc-bar" style="--bar-w:{{ pct_ai }}%;--bar-c:var(--green)"></div>
-    </div>
-    </a>
-
-    <a href="{{ url_for('dashboard_vms', category='ext_asset_inv') }}" class="adash-card-link">
-    <div class="adash-card">
-      <div class="adc-top">
-        <div class="adc-icon adc-icon--accent">◈</div>
-        <div class="adc-trend adc-trend--accent">{{ pct_ext }}% of total</div>
-      </div>
-      <div class="adc-val" style="color:var(--accent)">{{ stats.ext_asset_inv + stats.both }}</div>
-      <div class="adc-label">In Ext. Asset Inventory</div>
-      <div class="adc-bar" style="--bar-w:{{ pct_ext }}%;--bar-c:var(--accent)"></div>
-    </div>
-    </a>
-
-    <a href="{{ url_for('dashboard_vms', category='both') }}" class="adash-card-link">
-    <div class="adash-card">
-      <div class="adc-top">
-        <div class="adc-icon adc-icon--yellow">◈</div>
-        <div class="adc-trend adc-trend--yellow">{{ pct_both }}% of total</div>
-      </div>
-      <div class="adc-val" style="color:var(--yellow)">{{ stats.both }}</div>
-      <div class="adc-label">In Both Lists</div>
-      <div class="adc-bar" style="--bar-w:{{ pct_both }}%;--bar-c:var(--yellow)"></div>
-    </div>
-    </a>
-
-    <a href="{{ url_for('dashboard_vms', category='not_found') }}" class="adash-card-link">
-    <div class="adash-card">
-      <div class="adc-top">
-        <div class="adc-icon adc-icon--red">◈</div>
-        <div class="adc-trend adc-trend--red">{{ pct_nf }}% uncovered</div>
-      </div>
-      <div class="adc-val" style="color:var(--red)">{{ stats.not_found }}</div>
-      <div class="adc-label">Not in Any List</div>
-      <div class="adc-bar" style="--bar-w:{{ pct_nf }}%;--bar-c:var(--red)"></div>
-    </div>
-    </a>
-
-  </div>
-
-  <!-- ══════════════════════════════════════════════════════════ -->
-  <!-- CHARTS ROW                                                -->
-  <!-- ══════════════════════════════════════════════════════════ -->
-  <div class="adash-charts-row">
-
-    <!-- VMs by vCenter — horizontal bar chart -->
-    <div class="card adash-chart-card" style="flex:3">
-      <div class="card-header" style="margin-bottom:.75rem">
-        <h2 class="card-title">VMs by vCenter / Source</h2>
-        <div class="adash-legend">
-          <span class="adl-dot" style="background:rgba(47,123,255,.7)"></span><span>Total VMs</span>
-          {% if asset_configured %}
-          <span class="adl-dot" style="background:rgba(62,207,142,.7)"></span><span>Asset Inventory</span>
-          <span class="adl-dot" style="background:rgba(240,192,64,.7)"></span><span>Ext. Asset Inv.</span>
-          {% endif %}
+    <!-- Power state donut -->
+    <div class="dash2-card">
+      <div class="dash2-card-head"><h2>Power State</h2></div>
+      <div class="dash2-donut-wrap">
+        <canvas id="powerDonut"></canvas>
+        <div class="dash2-donut-center">
+          <div class="dash2-donut-num">{{ '{:,}'.format(t) }}</div>
+          <div class="dash2-donut-lbl">VMs</div>
         </div>
       </div>
-      <div class="adash-chart-scroll">
-        <canvas id="vcenterChart"></canvas>
+      <div class="dash2-donut-legend">
+        <span><i class="dot dot-on"></i>Powered On</span>
+        <span><i class="dot dot-off"></i>Powered Off</span>
+        <span><i class="dot dot-sus"></i>Suspended</span>
       </div>
+      <table class="dash2-mini-table">
+        <thead><tr><th>State</th><th>VMs</th><th>Share</th></tr></thead>
+        <tbody>
+          <tr><td><i class="dot dot-on"></i>Powered On</td><td>{{ pw_on }}</td><td>{{ (pw_on / t * 100)|round|int if t else 0 }}%</td></tr>
+          <tr><td><i class="dot dot-off"></i>Powered Off</td><td>{{ pw_off }}</td><td>{{ (pw_off / t * 100)|round|int if t else 0 }}%</td></tr>
+          <tr><td><i class="dot dot-sus"></i>Suspended</td><td>{{ pw_sus }}</td><td>{{ (pw_sus / t * 100)|round|int if t else 0 }}%</td></tr>
+        </tbody>
+      </table>
     </div>
 
-    <!-- Coverage donut chart -->
-    <div class="card adash-chart-card" style="flex:1;min-width:230px">
-      <div class="card-header" style="margin-bottom:.5rem">
-        <h2 class="card-title">Coverage Breakdown</h2>
+    <!-- Coverage breakdown (live-visits style) -->
+    <div class="dash2-card">
+      <div class="dash2-card-head"><h2>Inventory Coverage</h2></div>
+      <div class="dash2-live">
+        <div class="dash2-live-lbl">TOTAL DISCOVERED</div>
+        <div class="dash2-live-num">{{ '{:,}'.format(t) }}</div>
+        <div class="dash2-live-sub">{{ pct_cov }}% mapped to an asset list</div>
       </div>
-
-      {% if asset_configured %}
-      <div class="adash-donut-wrap">
-        <canvas id="coverageChart"></canvas>
-        <div class="adash-donut-center">
-          <div class="adash-donut-pct">{{ 100 - pct_nf }}%</div>
-          <div class="adash-donut-sub">covered</div>
+      {% set cov = [
+        ('Asset Inventory', stats.asset_inv, 'c-blue'),
+        ('Ext. Asset Inv.', stats.ext_asset_inv, 'c-green'),
+        ('Both Lists', stats.both, 'c-amber'),
+        ('Not Found', stats.not_found, 'c-rose'),
+      ] %}
+      <div class="dash2-hbars">
+        {% for label, count, cls in cov %}
+        <div class="dash2-hbar-row">
+          <span class="dash2-hbar-lbl">{{ label }}</span>
+          <div class="dash2-hbar-track">
+            <div class="dash2-hbar-fill {{ cls }}" style="width:{{ (count / t * 100)|round|int if t else 0 }}%"></div>
+          </div>
+          <span class="dash2-hbar-val">{{ '{:,}'.format(count) }}</span>
         </div>
+        {% endfor %}
       </div>
-      <div class="adash-donut-legend">
-        <div class="addl-row">
-          <span class="addl-dot" style="background:var(--green)"></span>
-          <span class="addl-label">Asset Inventory</span>
-          <span class="addl-count">{{ stats.asset_inv }}</span>
-        </div>
-        <div class="addl-row">
-          <span class="addl-dot" style="background:var(--accent)"></span>
-          <span class="addl-label">Ext. Asset Inv.</span>
-          <span class="addl-count">{{ stats.ext_asset_inv }}</span>
-        </div>
-        <div class="addl-row">
-          <span class="addl-dot" style="background:var(--yellow)"></span>
-          <span class="addl-label">Both Lists</span>
-          <span class="addl-count">{{ stats.both }}</span>
-        </div>
-        <div class="addl-row">
-          <span class="addl-dot" style="background:var(--text-dim)"></span>
-          <span class="addl-label">Not Found</span>
-          <span class="addl-count">{{ stats.not_found }}</span>
-        </div>
-      </div>
-      {% else %}
-      <div class="empty-state" style="margin-top:1rem;padding:1.5rem">
-        <div class="empty-icon" style="font-size:1.5rem">◈</div>
-        <p style="font-size:.8rem">Asset Inventory API not configured.</p>
-        <a href="{{ url_for('settings') }}" class="btn btn--outline btn--xs" style="margin-top:.75rem">
-          Configure in Settings
-        </a>
-      </div>
+      {% if not asset_configured %}
+      <p class="dash2-note">Asset Inventory API not configured —
+        <a href="{{ url_for('settings') }}">set it up in Settings</a> to populate coverage.</p>
       {% endif %}
     </div>
 
-  </div>
-
-  <!-- ══════════════════════════════════════════════════════════ -->
-  <!-- BOTTOM ROW: vCenter table + OS + Power                   -->
-  <!-- ══════════════════════════════════════════════════════════ -->
-  <div class="adash-bottom-row">
-
-    <!-- vCenter breakdown table -->
-    <div class="card" style="flex:3;overflow:hidden">
-      <div class="card-header" style="margin-bottom:.5rem">
-        <h2 class="card-title">vCenter Coverage Breakdown</h2>
-        <span style="font-size:.72rem;color:var(--text-muted)">{{ vcenter_stats|length }} sources</span>
+    <!-- Activity feed (notifications) -->
+    <div class="dash2-card">
+      <div class="dash2-card-head">
+        <h2>Activity</h2>
+        <a href="{{ url_for('notifications') }}" class="dash2-card-sub dash2-link">View all</a>
       </div>
-      <div style="max-height:380px;overflow-y:auto">
-        <table class="vm-table">
-          <thead>
-            <tr>
-              <th>vCenter / Source</th>
-              <th style="text-align:right">Total</th>
-              {% if asset_configured %}
-              <th style="text-align:right;color:var(--green)">Asset Inv.</th>
-              <th style="text-align:right;color:var(--accent)">Ext. Asset</th>
-              <th style="text-align:right;color:var(--yellow)">Both</th>
-              <th style="text-align:right;color:var(--red)">Not Found</th>
-              <th>Coverage</th>
-              {% endif %}
-            </tr>
-          </thead>
-          <tbody>
-            {% for vc, s in vcenter_stats %}
-            {% set covered = s.asset_inv + s.ext_asset_inv + s.both %}
-            {% set pct_c   = ((covered / s.total * 100)|round|int) if s.total > 0 else 0 %}
-            <tr>
-              <td>
-                <span class="accent" style="font-family:var(--mono);font-size:.76rem">{{ vc }}</span>
-              </td>
-              <td style="text-align:right;font-family:var(--mono)">{{ s.total }}</td>
-              {% if asset_configured %}
-              <td style="text-align:right;color:var(--green);font-family:var(--mono)">{{ s.asset_inv }}</td>
-              <td style="text-align:right;color:var(--accent);font-family:var(--mono)">{{ s.ext_asset_inv }}</td>
-              <td style="text-align:right;color:var(--yellow);font-family:var(--mono)">{{ s.both }}</td>
-              <td style="text-align:right;color:var(--red);font-family:var(--mono)">{{ s.not_found }}</td>
-              <td>
-                <div class="adash-cov-wrap">
-                  <div class="adash-cov-bar">
-                    <div class="adash-cov-fill" style="width:{{ pct_c }}%"></div>
-                  </div>
-                  <span class="adash-cov-pct">{{ pct_c }}%</span>
-                </div>
-              </td>
-              {% endif %}
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+      <div class="dash2-activity">
+        {% for n in recent_notifs %}
+        <div class="dash2-act-item">
+          <span class="dash2-act-ico lvl-{{ n.level }}">
+            {{ '!' if n.level == 'error' else ('▲' if n.level == 'warning' else 'i') }}
+          </span>
+          <div class="dash2-act-body">
+            <div class="dash2-act-msg">{{ n.message }}</div>
+            <div class="dash2-act-meta">
+              <span class="dash2-act-cat">{{ n.category }}</span>
+              {% if n.host %}<span class="dash2-sep">·</span>{{ n.host }}{% endif %}
+              <span class="dash2-act-time">{{ n.created_at }}</span>
+            </div>
+          </div>
+        </div>
+        {% else %}
+        <div class="dash2-empty">No recent activity.</div>
+        {% endfor %}
       </div>
     </div>
+  </div>
 
-    <!-- Right column: OS dist + Power state -->
-    <div class="adash-right-col">
+  <!-- ── Row 3: vCenter coverage table + OS distribution table ── -->
+  <div class="dash2-row3">
 
-      <!-- OS Distribution -->
-      <div class="card">
-        <div class="card-header" style="margin-bottom:.75rem">
-          <h2 class="card-title">OS Distribution</h2>
-          <span style="font-size:.7rem;color:var(--text-muted)">Top {{ os_stats|length }}</span>
-        </div>
-        <div style="height:220px;position:relative">
-          <canvas id="osChart"></canvas>
-        </div>
+    <div class="dash2-card">
+      <div class="dash2-card-head">
+        <h2>vCenter / Source Coverage</h2>
+        <span class="dash2-card-sub">{{ vcenter_stats|length }} sources</span>
       </div>
-
-      <!-- Power State -->
-      <div class="card" style="margin-top:1rem">
-        <div class="card-header" style="margin-bottom:.75rem">
-          <h2 class="card-title">Power State</h2>
-        </div>
-        <div class="adash-pwr-list">
-          {% set pw_on  = power_stats.get('poweredOn', 0) %}
-          {% set pw_off = power_stats.get('poweredOff', 0) %}
-          {% set pw_sus = power_stats.get('suspended', 0) %}
-          {% for label, count, cls in [
-              ('Powered On',  pw_on,  'poweredOn'),
-              ('Powered Off', pw_off, 'poweredOff'),
-              ('Suspended',   pw_sus, 'suspended'),
-          ] %}
-          {% set pct_pw = ((count / t * 100)|round|int) if t > 0 else 0 %}
-          <div class="adash-pwr-item">
-            <div class="adash-pwr-meta">
-              <span class="power-badge power-badge--{{ cls }}">{{ label }}</span>
-              <span class="adash-pwr-num">{{ count }}</span>
-            </div>
-            <div class="adash-pwr-bar">
-              <div class="adash-pwr-fill adash-pwr-fill--{{ cls }}" style="width:{{ pct_pw }}%"></div>
-            </div>
-            <span class="adash-pwr-pct">{{ pct_pw }}%</span>
-          </div>
+      <table class="dash2-table">
+        <thead>
+          <tr><th>Source</th><th>Total</th><th>Covered</th><th>Coverage</th></tr>
+        </thead>
+        <tbody>
+          {% for vc, s in vcenter_stats %}
+          {% set c = s.asset_inv + s.ext_asset_inv + s.both %}
+          {% set p = (c / s.total * 100)|round|int if s.total > 0 else 0 %}
+          <tr>
+            <td class="dash2-td-name">{{ vc }}</td>
+            <td>{{ s.total }}</td>
+            <td>{{ c }}</td>
+            <td>
+              <div class="dash2-cell-cov">
+                <div class="dash2-cell-track"><div class="dash2-cell-fill" style="width:{{ p }}%"></div></div>
+                <span>{{ p }}%</span>
+              </div>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="4" class="dash2-empty">No sources discovered yet.</td></tr>
           {% endfor %}
-        </div>
-      </div>
+        </tbody>
+      </table>
+    </div>
 
+    <div class="dash2-card">
+      <div class="dash2-card-head">
+        <h2>Operating Systems</h2>
+        <span class="dash2-card-sub">Top {{ os_stats|length }}</span>
+      </div>
+      <table class="dash2-table">
+        <thead>
+          <tr><th>OS</th><th>VMs</th><th>Share</th></tr>
+        </thead>
+        <tbody>
+          {% for os, count in os_stats %}
+          <tr>
+            <td class="dash2-td-name">{{ os }}</td>
+            <td>{{ count }}</td>
+            <td class="dash2-td-share">{{ (count / t * 100)|round(1) if t else 0 }}%</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="3" class="dash2-empty">No OS data.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
   </div>
 
@@ -300,198 +222,68 @@
 <script src="{{ url_for('static', filename='vendor/chart.umd.min.js') }}"></script>
 <script>
 (function () {
-
-  const _cs = getComputedStyle(document.documentElement);
-  const C = {
-    green:  '#3ecf8e', greenA:  'rgba(62,207,142,',
-    accent: '#2f7bff', accentA: 'rgba(47,123,255,',
-    yellow: '#f0c040', yellowA: 'rgba(240,192,64,',
-    red:    '#e05470', redA:    'rgba(224,84,112,',
-    dim:    '#3a425e', dimA:    'rgba(58,66,94,',
-    border: _cs.getPropertyValue('--border').trim()     || '#1e2535',
-    muted:  _cs.getPropertyValue('--text-muted').trim() || '#5a6480',
-  };
-
-  Chart.defaults.color       = C.muted;
-  Chart.defaults.borderColor = C.border;
-  Chart.defaults.font.family = "'IBM Plex Mono','Courier New',monospace";
+  Chart.defaults.font.family = "'IBM Plex Sans', system-ui, sans-serif";
   Chart.defaults.font.size   = 11;
+  Chart.defaults.color       = '#8a93a8';
 
-  // ── vCenter horizontal bar chart ────────────────────────
-  const vcData   = {{ vcenter_stats | tojson }};
-  const vcLabels = vcData.map(([vc]) => vc.length > 24 ? vc.slice(0,22)+'…' : vc);
-  const vcTotal  = vcData.map(([,s]) => s.total);
-
-  // Dynamically set canvas height based on row count
-  const vcCanvas = document.getElementById('vcenterChart');
-  const rowH     = 28;
-  vcCanvas.parentElement.style.height = Math.max(300, vcLabels.length * rowH + 40) + 'px';
-
-  const vcDatasets = [
-    {
-      label: 'Total VMs',
-      data:  vcTotal,
-      backgroundColor: C.accentA + '.35)',
-      borderColor:     C.accent,
-      borderWidth: 1, borderRadius: 3,
-    },
-    {% if asset_configured %}
-    {
-      label: 'Asset Inventory',
-      data:  vcData.map(([,s]) => s.asset_inv + s.both),
-      backgroundColor: C.greenA + '.45)',
-      borderColor:     C.green,
-      borderWidth: 1, borderRadius: 3,
-    },
-    {
-      label: 'Ext. Asset Inv.',
-      data:  vcData.map(([,s]) => s.ext_asset_inv + s.both),
-      backgroundColor: C.yellowA + '.35)',
-      borderColor:     C.yellow,
-      borderWidth: 1, borderRadius: 3,
-    },
-    {% endif %}
-  ];
-
-  new Chart(vcCanvas, {
-    type: 'bar',
-    data: { labels: vcLabels, datasets: vcDatasets },
-    options: {
-      indexAxis: 'y',
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { position: 'top', labels: { boxWidth: 10, padding: 14 } },
-        tooltip: { mode: 'index', intersect: false },
-      },
-      scales: {
-        x: { grid: { color: C.border }, beginAtZero: true, ticks: { precision: 0 } },
-        y: { grid: { color: C.border + '88' }, ticks: { font: { size: 10 } } },
-      },
-    },
-  });
-
-  // ── Coverage donut ───────────────────────────────────────
-  {% if asset_configured %}
-  const covCanvas = document.getElementById('coverageChart');
-  new Chart(covCanvas, {
-    type: 'doughnut',
-    data: {
-      labels: ['Asset Inventory','Ext. Asset Inv.','Both','Not Found'],
-      datasets: [{
-        data: [{{ stats.asset_inv }}, {{ stats.ext_asset_inv }}, {{ stats.both }}, {{ stats.not_found }}],
-        backgroundColor: [C.greenA+'.75)',C.accentA+'.75)',C.yellowA+'.75)',C.dimA+'.8)'],
-        borderColor:     [C.green, C.accent, C.yellow, C.border],
-        borderWidth: 2,
-        hoverOffset: 8,
-      }],
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      cutout: '70%',
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          callbacks: {
-            label: ctx => {
-              const total = {{ stats.total }};
-              const pct   = total ? Math.round(ctx.parsed / total * 100) : 0;
-              return ` ${ctx.label}: ${ctx.parsed} (${pct}%)`;
-            },
-          },
-        },
-      },
-    },
-  });
-  {% endif %}
-
-  // ── Daily VMs Created line chart (last 30 days, all sources) ──
-  const dailySeries = {{ daily_series | tojson }};
-  const dailyCanvas = document.getElementById('dailyChart');
-  if (dailyCanvas) {
-    new Chart(dailyCanvas, {
-      type: 'line',
+  // ── Monthly VMs created — bar chart ──
+  const monthly = {{ monthly_series | tojson }};
+  const mCanvas = document.getElementById('monthlyChart');
+  if (mCanvas) {
+    const ctx  = mCanvas.getContext('2d');
+    const grad = ctx.createLinearGradient(0, 0, 0, 240);
+    grad.addColorStop(0, '#6d7cf7');
+    grad.addColorStop(1, '#aeb8fb');
+    new Chart(mCanvas, {
+      type: 'bar',
       data: {
-        labels: dailySeries.map(d => d.date),
+        labels: monthly.map(m => m.label),
         datasets: [{
-          label: 'VMs Created',
-          data:  dailySeries.map(d => d.count),
-          backgroundColor: C.accentA + '.18)',
-          borderColor:     C.accent,
-          borderWidth:     2,
-          pointRadius:     3,
-          pointHoverRadius: 5,
-          pointBackgroundColor: C.accent,
-          pointBorderColor: '#fff',
-          pointBorderWidth: 1,
-          tension: 0.3,
-          fill: true,
+          data: monthly.map(m => m.count),
+          backgroundColor: grad,
+          borderRadius: 6,
+          maxBarThickness: 16,
         }],
       },
       options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        interaction: { mode: 'index', intersect: false },
+        responsive: true, maintainAspectRatio: false,
         plugins: {
           legend: { display: false },
-          tooltip: {
-            callbacks: {
-              title: ctx => ctx[0].label,
-              label: ctx => ` ${ctx.parsed.y} VM${ctx.parsed.y !== 1 ? 's' : ''} created`,
-            },
-          },
+          tooltip: { callbacks: { label: c => ` ${c.parsed.y} VM${c.parsed.y !== 1 ? 's' : ''} created` } },
         },
         scales: {
-          x: {
-            grid: { display: false },
-            ticks: {
-              maxRotation: 0,
-              font: { size: 9 },
-              callback: function(val, idx) {
-                // Show day labels every ~3 days to keep the axis readable
-                const lbl = dailySeries[idx]?.date || '';
-                return idx % 3 === 0 ? lbl.slice(5) : '';
-              },
-            },
-          },
-          y: {
-            grid: { color: C.border },
-            beginAtZero: true,
-            ticks: { precision: 0, font: { size: 9 } },
-          },
+          x: { grid: { display: false }, border: { display: false } },
+          y: { beginAtZero: true, border: { display: false },
+               grid: { color: '#eef1f6' }, ticks: { precision: 0, maxTicksLimit: 6 } },
         },
       },
     });
   }
 
-  // ── OS distribution horizontal bar chart ───────────────
-  const osData   = {{ os_stats | tojson }};
-  const osCanvas = document.getElementById('osChart');
-  new Chart(osCanvas, {
-    type: 'bar',
-    data: {
-      labels: osData.map(([os]) => os.length > 22 ? os.slice(0,20)+'…' : os),
-      datasets: [{
-        label: 'VMs',
-        data:  osData.map(([,c]) => c),
-        backgroundColor: C.accentA + '.4)',
-        borderColor:     C.accent,
-        borderWidth: 1, borderRadius: 3,
-      }],
-    },
-    options: {
-      indexAxis: 'y',
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: { legend: { display: false }, tooltip: { mode: 'index', intersect: false } },
-      scales: {
-        x: { grid: { color: C.border }, beginAtZero: true, ticks: { precision: 0 } },
-        y: { grid: { display: false }, ticks: { font: { size: 10 } } },
+  // ── Power state — doughnut ──
+  const pdCanvas = document.getElementById('powerDonut');
+  if (pdCanvas) {
+    new Chart(pdCanvas, {
+      type: 'doughnut',
+      data: {
+        labels: ['Powered On', 'Powered Off', 'Suspended'],
+        datasets: [{
+          data: [{{ pw_on }}, {{ pw_off }}, {{ pw_sus }}],
+          backgroundColor: ['#2fc98e', '#fb7185', '#f6b73c'],
+          borderWidth: 0,
+          hoverOffset: 6,
+        }],
       },
-    },
-  });
-
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        cutout: '72%',
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: c => ` ${c.label}: ${c.parsed}` } },
+        },
+      },
+    });
+  }
 })();
 </script>
 {% endblock %}
