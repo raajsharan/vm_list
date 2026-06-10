@@ -26,6 +26,13 @@
   </div>
 {% endmacro %}
 
+{% macro exports(category) %}
+  <div class="stale-exports">
+    <a href="{{ url_for('export_stale', category=category, fmt='csv') }}" class="btn btn--ghost btn--sm">↓ CSV</a>
+    <a href="{{ url_for('export_stale', category=category, fmt='json') }}" class="btn btn--ghost btn--sm">↓ JSON</a>
+  </div>
+{% endmacro %}
+
 {% block content %}
 <div class="page-asset-dash">
   <div class="inventory-header">
@@ -48,21 +55,24 @@
   </div>
 
   <div class="card" style="margin-bottom:1.2rem">
-    <div class="card-header"><h2 class="card-title">Removed since previous snapshot</h2></div>
+    <div class="card-header"><h2 class="card-title">Removed since previous snapshot</h2>
+      {% if removed %}{{ exports('removed') }}{% endif %}</div>
     {% if removed %}{{ vmtable(removed) }}
     {% else %}<p style="color:var(--text-muted);font-size:.8rem">No VMs were removed between the last two snapshots.</p>{% endif %}
   </div>
 
   <div class="card" style="margin-bottom:1.2rem">
     <div class="card-header"><h2 class="card-title">Powered on but no usable IP</h2>
-      <span style="font-size:.7rem;color:var(--text-muted)">VMware Tools likely not running</span></div>
+      <span style="font-size:.7rem;color:var(--text-muted)">VMware Tools likely not running</span>
+      {% if no_network %}{{ exports('no_network') }}{% endif %}</div>
     {% if no_network %}{{ vmtable(no_network) }}
     {% else %}<p style="color:var(--text-muted);font-size:.8rem">None — every running VM reports an IP.</p>{% endif %}
   </div>
 
   <div class="card">
     <div class="card-header"><h2 class="card-title">Powered off</h2>
-      <span style="font-size:.7rem;color:var(--text-muted)">review for decommissioning</span></div>
+      <span style="font-size:.7rem;color:var(--text-muted)">review for decommissioning</span>
+      {% if powered_off %}{{ exports('powered_off') }}{% endif %}</div>
     {% if powered_off %}{{ vmtable(powered_off) }}
     {% else %}<p style="color:var(--text-muted);font-size:.8rem">No powered-off VMs.</p>{% endif %}
   </div>

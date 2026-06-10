@@ -1581,11 +1581,9 @@ def create_app() -> Flask:
     # Stale & orphaned VMs (requires PostgreSQL)
     # -----------------------------------------------------------------------
 
-    @app.route("/stale", methods=["GET"])
-    def stale():
-        if not database.is_configured():
-            return render_template("db_required.html", feature="Stale & orphaned VMs")
-
+    def _stale_categories() -> dict:
+        """Compute the three decommission-candidate buckets shown on /stale.
+        Shared by the page view and the export route so they never diverge."""
         raw_vms = database.load_latest_inventory_all_hosts()
         display = data_processor.normalise_for_display(raw_vms)
 
@@ -1603,12 +1601,57 @@ def create_app() -> Flask:
         # Powered off VMs (candidates for decommission review)
         powered_off = [v for v in display if v["power_state"] == "poweredOff"]
 
-        return render_template(
-            "stale.html",
-            removed=removed,
-            no_network=no_network,
-            powered_off=powered_off,
-            total=len(display),
+        return {
+            "removed":     removed,
+            "no_network":  no_network,
+            "powered_off": powered_off,
+            "total":       len(display),
+        }
+
+    @app.route("/stale", methods=["GET"])
+    def stale():
+        if not database.is_configured():
+            return render_template("db_required.html", feature="Stale & orphaned VMs")
+        return render_template("stale.html", **_stale_categories())
+
+    # Human labels for export filenames / flash messages, per category.
+    _STALE_LABELS = {
+        "removed":     "removed_since_previous_snapshot",
+        "no_network":  "powered_on_no_ip",
+        "powered_off": "powered_off",
+    }
+
+    @app.route("/stale/export/<category>/<fmt>", methods=["GET"])
+    def export_stale(category, fmt):
+        if not database.is_configured():
+            flash("Database not configured — nothing to export.", "warning")
+            return redirect(url_for("stale"))
+        if category not in _STALE_LABELS or fmt not in ("csv", "json"):
+            flash("Unknown export request.", "error")
+            return redirect(url_for("stale"))
+
+        rows = _stale_categories()[category]
+        if not rows:
+            flash("Nothing to export in that category.", "warning")
+            return redirect(url_for("stale"))
+
+        fname = f"stale_{_STALE_LABELS[category]}"
+        if fmt == "json":
+            return Response(
+                json.dumps(rows, indent=2, default=str),
+                mimetype="application/json",
+                headers={"Content-Disposition": f"attachment; filename={fname}.json"},
+            )
+
+        csv_rows = data_processor.display_to_csv_rows(rows)
+        output = io.StringIO()
+        writer = csv.DictWriter(output, fieldnames=csv_rows[0].keys())
+        writer.writeheader()
+        writer.writerows(csv_rows)
+        return Response(
+            output.getvalue(),
+            mimetype="text/csv",
+            headers={"Content-Disposition": f"attachment; filename={fname}.csv"},
         )
 
     # -----------------------------------------------------------------------

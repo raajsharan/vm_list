@@ -96,6 +96,30 @@ def to_csv_rows_consolidated(records: list[dict]) -> list[dict]:
     return rows
 
 
+def display_to_csv_rows(display: list[dict]) -> list[dict]:
+    """CSV rows from already-normalised display dicts (used by the Stale report).
+
+    The list fields (IPs/MACs) are already joined to strings by
+    normalise_for_display, so this just maps them to labelled columns.
+    """
+    rows = []
+    for v in display:
+        rows.append({
+            "Source Host":    v.get("source_host", ""),
+            "VM Name":        v.get("name", _UNKNOWN),
+            "Hostname":       v.get("hostname", _UNKNOWN),
+            "IP Addresses":   v.get("ip_addresses", _UNKNOWN),
+            "ESXi Host Name": v.get("esxi_host_name", _UNKNOWN),
+            "ESXi Host IP":   v.get("esxi_host_ip", _UNKNOWN),
+            "OS Type":        v.get("os_type", _UNKNOWN),
+            "OS Version":     v.get("os_version", _UNKNOWN),
+            "MAC Addresses":  v.get("mac_addresses", _UNKNOWN),
+            "Power State":    v.get("power_state", _UNKNOWN),
+            "VMware Tools":   v.get("tools_status", _UNKNOWN),
+        })
+    return rows
+
+
 def to_csv_rows(records: list[dict]) -> list[dict]:
     """
     Flatten records for CSV export.

@@ -2885,6 +2885,14 @@ tr.ml-unmatched td:first-child {
   min-width: 30px;
 }
 
+/* ── Stale report: per-section export buttons ── */
+.stale-exports {
+  margin-left: auto;      /* push to the right edge of the card header */
+  display: flex;
+  gap: .4rem;
+  flex-shrink: 0;
+}
+
 /* ── Power state bars ── */
 .adash-pwr-list { display: flex; flex-direction: column; gap: .85rem; padding: 0 1.5rem 1.25rem; }
 .adash-pwr-item { display: flex; flex-direction: column; gap: .25rem; }
