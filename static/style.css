@@ -3332,3 +3332,74 @@ a.dash2-hbar-row:hover .dash2-hbar-lbl { color:var(--d2-blue); }
   .dash2 { margin:-1.5rem -1rem; padding:1.25rem 1rem 2rem; }
   .dash2-stats { grid-template-columns:1fr; }
 }
+
+/* ============================================================
+   App shell — hover-expand sidebar + slim topbar
+   (replaces the horizontal top nav; uses the app theme tokens)
+   ============================================================ */
+.app-shell { min-height:100vh; }
+.app-main { display:flex; flex-direction:column; min-height:100vh; }
+.app-shell.has-sidebar .app-main { margin-left:72px; transition:margin-left .2s ease; }
+
+/* Sidebar (collapsed icon rail; expands on hover, overlaying content) */
+.sidebar {
+  position:fixed; top:0; left:0; bottom:0; width:72px; z-index:300;
+  background:var(--bg-card); border-right:1px solid var(--border);
+  display:flex; flex-direction:column; overflow:hidden;
+  transition:width .2s ease, box-shadow .2s ease;
+}
+.sidebar:hover { width:240px; box-shadow:8px 0 30px rgba(0,0,0,.22); }
+
+.sidebar-brand { display:flex; align-items:center; gap:.7rem; height:56px; padding:0 1.45rem;
+  border-bottom:1px solid var(--border); flex-shrink:0; text-decoration:none; }
+.sidebar-brand .brand-icon { color:var(--accent); font-size:1.25rem; line-height:1; flex-shrink:0; }
+.sidebar-brand .brand-name { font-family:var(--mono); font-size:.72rem; font-weight:600; letter-spacing:.1em;
+  color:var(--text); white-space:nowrap; opacity:0; transition:opacity .15s ease; }
+.sidebar:hover .brand-name { opacity:1; }
+
+.sidebar-nav { flex:1; overflow-y:auto; overflow-x:hidden; padding:.5rem 0 1rem; display:flex; flex-direction:column; }
+.sidebar-nav::-webkit-scrollbar { width:6px; }
+.sidebar-nav::-webkit-scrollbar-thumb { background:var(--border-hi); border-radius:3px; }
+
+.side-section { font-family:var(--mono); font-size:.56rem; letter-spacing:.16em; text-transform:uppercase;
+  color:var(--text-dim); padding:.85rem 1.45rem .3rem; white-space:nowrap; opacity:0; transition:opacity .15s ease; }
+.sidebar:hover .side-section { opacity:1; }
+
+.side-link { display:flex; align-items:center; gap:.95rem; padding:.62rem 0 .62rem 1.45rem;
+  color:var(--text-muted); text-decoration:none; white-space:nowrap; border-left:3px solid transparent;
+  transition:color .15s, background .15s, border-color .15s; }
+.side-link svg { flex-shrink:0; }
+.side-txt { font-size:.82rem; opacity:0; transition:opacity .15s ease; }
+.sidebar:hover .side-txt { opacity:1; }
+.side-link:hover { color:var(--text); background:var(--accent-dim); }
+.side-link--active { color:var(--accent); background:var(--accent-dim); border-left-color:var(--accent); }
+.side-link--active .side-txt { font-weight:600; }
+
+/* Topbar */
+.topbar { position:sticky; top:0; z-index:200; height:56px; display:flex; align-items:center; gap:1rem;
+  padding:0 1.5rem; background:var(--header-bg); backdrop-filter:blur(8px); border-bottom:1px solid var(--border); }
+.topbar-burger { display:none; background:none; border:none; color:var(--text); font-size:1.35rem; cursor:pointer; line-height:1; padding:.2rem .4rem; }
+.topbar-spacer { flex:1; }
+.topbar-right { display:flex; align-items:center; gap:1.1rem; }
+.topbar-link, .topbar-user { display:inline-flex; align-items:center; gap:.4rem; color:var(--text-muted);
+  text-decoration:none; position:relative; transition:color .15s; }
+.topbar-link:hover, .topbar-user:hover { color:var(--accent); }
+.topbar-link--active { color:var(--accent); }
+.topbar-user-name { font-family:var(--mono); font-size:.72rem; letter-spacing:.04em; }
+.topbar-badge { position:absolute; top:-6px; right:-9px; background:var(--red); color:#fff; font-size:.58rem;
+  font-weight:700; line-height:1; padding:.12rem .32rem; border-radius:9px; }
+.topbar-logout-form { display:inline-flex; margin:0; }
+.topbar-logout { background:none; border:none; cursor:pointer; padding:0; color:var(--text-muted); }
+.topbar-logout:hover { color:var(--red); }
+
+/* Mobile: off-canvas drawer */
+@media (max-width:900px) {
+  .app-shell.has-sidebar .app-main { margin-left:0; }
+  .sidebar { width:240px; transform:translateX(-100%); transition:transform .2s ease; box-shadow:8px 0 30px rgba(0,0,0,.3); }
+  .sidebar.open { transform:none; }
+  .sidebar .brand-name, .sidebar .side-section, .sidebar .side-txt { opacity:1; }
+  .topbar-burger { display:inline-block; }
+  .sidebar-backdrop { position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:250; opacity:0; pointer-events:none; transition:opacity .2s ease; }
+  .sidebar-backdrop.open { opacity:1; pointer-events:auto; }
+  .topbar-user-name { display:none; }
+}
