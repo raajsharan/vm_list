@@ -20,32 +20,33 @@
       </div>
       <nav class="header-nav">
         {% if current_user and current_user.id %}
-        <a href="{{ url_for('dashboard') }}" class="nav-link nav-link--highlight">DASHBOARD</a>
-        <a href="{{ url_for('all_vms') }}" class="nav-link">ALL VMs</a>
-        <a href="{{ url_for('drift') }}" class="nav-link">DRIFT</a>
-        <a href="{{ url_for('stale') }}" class="nav-link">STALE</a>
-        <a href="{{ url_for('snapshots') }}" class="nav-link">SNAPSHOTS</a>
+        {% set ep = request.endpoint or '' %}
+        <a href="{{ url_for('dashboard') }}" class="nav-link{{ ' nav-link--active' if ep in ['dashboard','dashboard_vms'] else '' }}">DASHBOARD</a>
+        <a href="{{ url_for('all_vms') }}" class="nav-link{{ ' nav-link--active' if ep in ['all_vms','export_all_csv','export_all_json'] else '' }}">ALL VMs</a>
+        <a href="{{ url_for('drift') }}" class="nav-link{{ ' nav-link--active' if ep == 'drift' else '' }}">DRIFT</a>
+        <a href="{{ url_for('stale') }}" class="nav-link{{ ' nav-link--active' if ep in ['stale','export_stale'] else '' }}">STALE</a>
+        <a href="{{ url_for('snapshots') }}" class="nav-link{{ ' nav-link--active' if ep == 'snapshots' else '' }}">SNAPSHOTS</a>
         <span class="nav-sep">|</span>
         {% if current_user.is_admin %}
-        <a href="{{ url_for('index') }}" class="nav-link">CONNECT</a>
-        <a href="{{ url_for('credentials') }}" class="nav-link">CREDENTIALS</a>
+        <a href="{{ url_for('index') }}" class="nav-link{{ ' nav-link--active' if ep in ['index','discover'] else '' }}">CONNECT</a>
+        <a href="{{ url_for('credentials') }}" class="nav-link{{ ' nav-link--active' if ep == 'credentials' else '' }}">CREDENTIALS</a>
         {% endif %}
-        <a href="{{ url_for('view_cached') }}" class="nav-link">CACHED VIEW</a>
-        <a href="{{ url_for('esxi_topology') }}" class="nav-link">ESXi HOSTS</a>
-        <a href="{{ url_for('mac_lookup') }}" class="nav-link">MAC LOOKUP</a>
-        <a href="{{ url_for('asset_details') }}" class="nav-link">ASSETS</a>
+        <a href="{{ url_for('view_cached') }}" class="nav-link{{ ' nav-link--active' if ep == 'view_cached' else '' }}">CACHED VIEW</a>
+        <a href="{{ url_for('esxi_topology') }}" class="nav-link{{ ' nav-link--active' if ep == 'esxi_topology' else '' }}">ESXi HOSTS</a>
+        <a href="{{ url_for('mac_lookup') }}" class="nav-link{{ ' nav-link--active' if ep == 'mac_lookup' else '' }}">MAC LOOKUP</a>
+        <a href="{{ url_for('asset_details') }}" class="nav-link{{ ' nav-link--active' if ep == 'asset_details' else '' }}">ASSETS</a>
         {% if current_user.is_admin %}
-        <a href="{{ url_for('asset_editor') }}" class="nav-link">EDITOR</a>
+        <a href="{{ url_for('asset_editor') }}" class="nav-link{{ ' nav-link--active' if ep == 'asset_editor' else '' }}">EDITOR</a>
         {% endif %}
         <span class="nav-sep">|</span>
-        <a href="{{ url_for('notifications') }}" class="nav-link" title="Notifications">
+        <a href="{{ url_for('notifications') }}" class="nav-link{{ ' nav-link--active' if ep == 'notifications' else '' }}" title="Notifications">
           ⬤ ALERTS{% if nav_notif_count %} <span class="nav-badge">{{ nav_notif_count }}</span>{% endif %}
         </a>
         {% if current_user.is_admin %}
-        <a href="{{ url_for('users') }}" class="nav-link">USERS</a>
-        <a href="{{ url_for('settings') }}" class="nav-link">SETTINGS</a>
+        <a href="{{ url_for('users') }}" class="nav-link{{ ' nav-link--active' if ep == 'users' else '' }}">USERS</a>
+        <a href="{{ url_for('settings') }}" class="nav-link{{ ' nav-link--active' if ep == 'settings' else '' }}">SETTINGS</a>
         {% endif %}
-        <a href="{{ url_for('account') }}" class="nav-link" title="Account">
+        <a href="{{ url_for('account') }}" class="nav-link{{ ' nav-link--active' if ep == 'account' else '' }}" title="Account">
           {{ current_user.username }}{% if current_user.is_admin %} ★{% endif %}
         </a>
         <form method="POST" action="{{ url_for('logout') }}" style="display:contents">
