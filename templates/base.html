@@ -28,7 +28,7 @@
   <meta name="csrf-token" content="{{ csrf_token() }}">
   <title>{% block title %}VMware Inventory{% endblock %}</title>
   <!-- Apply saved theme immediately — before CSS paint — to prevent flash -->
-  <script>(function(){var t=localStorage.getItem('vmw-theme')||'dark';document.documentElement.setAttribute('data-theme',t);}());</script>
+  <script>(function(){var d=document.documentElement;d.setAttribute('data-theme',localStorage.getItem('vmw-theme')||'dark');if(localStorage.getItem('vmw-sidebar-locked')==='1')d.classList.add('sidebar-locked');}());</script>
   <!-- Self-hosted IBM Plex fonts (no external CDN — avoids render-blocking on internal networks) -->
   <link rel="stylesheet" href="{{ url_for('static', filename='fonts/fonts.css') }}" />
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
@@ -41,10 +41,15 @@
   {% if authed %}
   <!-- ── Hover-expand sidebar ── -->
   <aside class="sidebar" id="sidebar">
-    <a href="{{ url_for('dashboard') }}" class="sidebar-brand">
-      <span class="brand-icon">◈</span>
-      <span class="brand-name">VMWARE INVENTORY</span>
-    </a>
+    <div class="sidebar-head">
+      <a href="{{ url_for('dashboard') }}" class="sidebar-brand">
+        <span class="brand-icon">◈</span>
+        <span class="brand-name">VMWARE INVENTORY</span>
+      </a>
+      <button type="button" class="sidebar-lock" id="sidebarLock" title="Keep sidebar open" aria-label="Keep sidebar open" aria-pressed="false">
+        <span class="sidebar-lock-ico"></span>
+      </button>
+    </div>
     <nav class="sidebar-nav">
       <div class="side-section">Main</div>
       <a href="{{ url_for('dashboard') }}" class="side-link{{ ' side-link--active' if ep in ['dashboard','dashboard_vms'] else '' }}">{{ ico('grid') }}<span class="side-txt">Dashboard</span></a>
@@ -210,6 +215,18 @@
   if (bt) bt.addEventListener('click', function(){ sb.classList.contains('open') ? close() : open(); });
   if (bd) bd.addEventListener('click', close);
   document.addEventListener('keydown', function(e){ if(e.key==='Escape') close(); });
+
+  // Lock toggle — pins the sidebar open (disables hover auto-collapse)
+  var lock = document.getElementById('sidebarLock'), d = document.documentElement;
+  if (lock) {
+    var sync = function(){ lock.setAttribute('aria-pressed', d.classList.contains('sidebar-locked') ? 'true' : 'false'); };
+    sync();
+    lock.addEventListener('click', function(){
+      var on = d.classList.toggle('sidebar-locked');
+      localStorage.setItem('vmw-sidebar-locked', on ? '1' : '0');
+      sync();
+    });
+  }
 })();
 </script>
 

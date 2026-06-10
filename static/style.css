@@ -3350,12 +3350,32 @@ a.dash2-hbar-row:hover .dash2-hbar-lbl { color:var(--d2-blue); }
 }
 .sidebar:hover { width:240px; box-shadow:8px 0 30px rgba(0,0,0,.22); }
 
-.sidebar-brand { display:flex; align-items:center; gap:.7rem; height:56px; padding:0 1.45rem;
-  border-bottom:1px solid var(--border); flex-shrink:0; text-decoration:none; }
+.sidebar-head { display:flex; align-items:center; gap:.5rem; height:56px; padding:0 1.1rem 0 1.45rem;
+  border-bottom:1px solid var(--border); flex-shrink:0; }
+.sidebar-brand { display:flex; align-items:center; gap:.7rem; text-decoration:none; flex:1; min-width:0; overflow:hidden; }
 .sidebar-brand .brand-icon { color:var(--accent); font-size:1.25rem; line-height:1; flex-shrink:0; }
 .sidebar-brand .brand-name { font-family:var(--mono); font-size:.72rem; font-weight:600; letter-spacing:.1em;
   color:var(--text); white-space:nowrap; opacity:0; transition:opacity .15s ease; }
 .sidebar:hover .brand-name { opacity:1; }
+
+/* Lock/pin toggle — keeps the sidebar open (disables hover auto-collapse) */
+.sidebar-lock { background:none; border:none; cursor:pointer; color:var(--text-muted); padding:.3rem;
+  display:flex; align-items:center; flex-shrink:0; opacity:0; transition:opacity .15s ease, color .15s ease; }
+.sidebar:hover .sidebar-lock { opacity:1; }
+.sidebar-lock:hover { color:var(--accent); }
+.sidebar-lock-ico { width:15px; height:15px; border-radius:50%; border:2px solid currentColor;
+  position:relative; display:inline-block; }
+html.sidebar-locked .sidebar-lock { opacity:1; color:var(--accent); }
+html.sidebar-locked .sidebar-lock-ico::after { content:""; position:absolute; inset:2px; border-radius:50%; background:currentColor; }
+
+/* Locked (pinned) state — desktop only: stay expanded and push content */
+@media (min-width:901px) {
+  html.sidebar-locked .sidebar { width:240px; box-shadow:none; }
+  html.sidebar-locked .app-shell.has-sidebar .app-main { margin-left:240px; }
+  html.sidebar-locked .sidebar .brand-name,
+  html.sidebar-locked .sidebar .side-section,
+  html.sidebar-locked .sidebar .side-txt { opacity:1; }
+}
 
 .sidebar-nav { flex:1; overflow-y:auto; overflow-x:hidden; padding:.5rem 0 1rem; display:flex; flex-direction:column; }
 .sidebar-nav::-webkit-scrollbar { width:6px; }
@@ -3402,4 +3422,5 @@ a.dash2-hbar-row:hover .dash2-hbar-lbl { color:var(--d2-blue); }
   .sidebar-backdrop { position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:250; opacity:0; pointer-events:none; transition:opacity .2s ease; }
   .sidebar-backdrop.open { opacity:1; pointer-events:auto; }
   .topbar-user-name { display:none; }
+  .sidebar-lock { display:none; }
 }
