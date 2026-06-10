@@ -3090,8 +3090,9 @@ tr.ml-unmatched td:first-child {
 .login-popup {
   width: 100%; max-width: 540px; max-height: 80vh;
   display: flex; flex-direction: column;
-  background: var(--surface, #131a24);
-  border: 1px solid var(--border, rgba(255,255,255,.12));
+  background: var(--bg-card);
+  color: var(--text);
+  border: 1px solid var(--border);
   border-radius: 10px; overflow: hidden;
   box-shadow: 0 12px 48px rgba(0,0,0,.45);
 }
@@ -3114,7 +3115,7 @@ tr.ml-unmatched td:first-child {
 .login-popup-item--warning { border-left-color: var(--yellow); }
 .login-popup-item--error   { border-left-color: var(--red, #e0564f); }
 .lp-meta { display: flex; gap: .5rem; font-size: .65rem; color: var(--text-muted); margin-bottom: .2rem; text-transform: uppercase; }
-.lp-msg { font-size: .82rem; }
+.lp-msg { font-size: .82rem; color: var(--text); line-height: 1.45; }
 .lp-level { font-weight: 600; }
 
 /* Notifications page */
