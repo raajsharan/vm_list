@@ -2823,7 +2823,7 @@ tr.ml-unmatched td:first-child {
   color: var(--text-muted);
 }
 
-.adash-donut-legend { display: flex; flex-direction: column; gap: .35rem; margin-top: .25rem; }
+.adash-donut-legend { display: flex; flex-direction: column; gap: .35rem; margin-top: .25rem; padding: 0 1.5rem 1.25rem; }
 .addl-row {
   display: flex;
   align-items: center;
@@ -2886,7 +2886,7 @@ tr.ml-unmatched td:first-child {
 }
 
 /* ── Power state bars ── */
-.adash-pwr-list { display: flex; flex-direction: column; gap: .85rem; }
+.adash-pwr-list { display: flex; flex-direction: column; gap: .85rem; padding: 0 1.5rem 1.25rem; }
 .adash-pwr-item { display: flex; flex-direction: column; gap: .25rem; }
 .adash-pwr-meta { display: flex; justify-content: space-between; align-items: center; }
 .adash-pwr-num  { font-family: var(--mono); font-size: .78rem; color: var(--text); }
